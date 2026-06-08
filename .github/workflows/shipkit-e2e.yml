@@ -1,0 +1,104 @@
+name: ShipKit E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider file to validate
+        required: false
+        default: tests/fixtures/sample-provider.ts
+      expect-type:
+        description: Expected DeliverableType (text|schema)
+        required: false
+        default: text
+
+jobs:
+  e2e:
+    name: Validate provider against @croo-network/sdk
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Recreate @croo-network/sdk mock shim
+        run: |
+          mkdir -p node_modules/@croo-network/sdk
+          cat > node_modules/@croo-network/sdk/package.json <<'JSON'
+          {"name":"@croo-network/sdk","version":"0.0.0-mock","type":"module","main":"index.ts","module":"index.ts","types":"index.ts"}
+          JSON
+          echo 'export * from "../../../tests/mocks/croo-network-sdk";' > node_modules/@croo-network/sdk/index.ts
+
+      - name: Static CAP conformance
+        id: static
+        run: bun ./scripts/test-shipkit.ts
+
+      - name: E2E lifecycle (writes reports/)
+        id: e2e
+        run: |
+          bun ./scripts/e2e-shipkit.ts \
+            --provider "${{ github.event.inputs.provider || 'tests/fixtures/sample-provider.ts' }}" \
+            --expect-type "${{ github.event.inputs.expect-type || 'text' }}" \
+            --report-dir reports \
+            --report-name "e2e-${{ github.run_id }}-${{ github.run_attempt }}"
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## ShipKit E2E — run ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -d reports ]; then
+            echo "| Report | Status |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+            for f in reports/*.json; do
+              [ -e "$f" ] || continue
+              name=$(basename "$f" .json)
+              exit_code=$(jq -r '.exitCode' "$f")
+              ok=$(jq -r '.counts.ok' "$f"); fail=$(jq -r '.counts.fail' "$f"); warn=$(jq -r '.counts.warn' "$f")
+              status=$([ "$exit_code" = "0" ] && echo "✅ pass" || echo "❌ fail")
+              echo "| \`$name\` | $status — ${ok} ok / ${fail} fail / ${warn} warn |" >> "$GITHUB_STEP_SUMMARY"
+            done
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Download the **shipkit-e2e-reports** artifact below for the full HTML/JSON timeline (with one-click failing-trace export)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "_No reports generated — the harness exited before writing._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload reports (HTML + JSON)
+        if: always() && hashFiles('reports/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipkit-e2e-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            reports/*.html
+            reports/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload failing-trace bundle
+        if: failure() && hashFiles('reports/*.json') != ''
+        run: |
+          mkdir -p reports/failing
+          for f in reports/*.json; do
+            [ -e "$f" ] || continue
+            jq '[.timeline[] | select(.status=="fail" or .status=="warn")]' "$f" \
+              > "reports/failing/$(basename "$f" .json)-failing.json"
+          done
+
+      - name: Upload failing-trace artifact
+        if: failure() && hashFiles('reports/failing/*.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipkit-e2e-failing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/failing/*.json
+          retention-days: 30
