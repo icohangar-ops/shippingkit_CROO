@@ -74,6 +74,9 @@ If the step is missing from the immediate previous attempt, the comment
 automatically falls back to the newest older attempt that contains it,
 making it easy to compare against the last available baseline even when
 intervening retries were partial or had different step ordering.
+Each comparison block also includes a **🔧 View baseline run →** link to the
+matched GitHub Actions run page, so reviewers can jump straight from a
+fallback comparison to the original baseline logs.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
