@@ -102,6 +102,9 @@ jobs:
               prev_slug=$(basename "$prev_dir")
               mkdir -p "/tmp/prev-reports/${prev_slug}"
               cp "$prev_dir"/*.json "/tmp/prev-reports/${prev_slug}/" 2>/dev/null || true
+              # Stash published SHA256SUMS.txt so the PR comment can surface
+              # verified checksums for each matched baseline artifact.
+              cp "$prev_dir"/SHA256SUMS.txt "/tmp/prev-reports/${prev_slug}/" 2>/dev/null || true
             done
             echo "prev_base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${PREV_SLUG}" >> "$GITHUB_OUTPUT"
             echo "prev_slug=${PREV_SLUG}" >> "$GITHUB_OUTPUT"
@@ -114,6 +117,12 @@ jobs:
           fi
           # Publish current run: timeline + per-step PNGs + JSON (for next-run diffs).
           cp reports/*-timeline.png reports/*-step-*.png reports/*.json "$STAGE/$DEST/" 2>/dev/null || true
+          # Generate SHA256 checksums so reviewers can verify downloaded
+          # artifacts (individual files AND files extracted from the ZIP)
+          # match exactly what was published from this run.
+          ( cd "$STAGE/$DEST" && \
+            sha256sum *.json *.png 2>/dev/null | LC_ALL=C sort -k2 > SHA256SUMS.txt && \
+            echo "Published SHA256SUMS.txt:" && cat SHA256SUMS.txt ) || true
           ls "$STAGE/$DEST/" || true
           cd "$STAGE"
           git config user.email "shipkit-e2e@users.noreply.github.com"
@@ -194,6 +203,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
+            const crypto = require('crypto');
             const dir = 'reports';
             const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
             if (!files.length) return;
@@ -206,6 +216,38 @@ jobs:
             const prevSlug = process.env.PREV_SLUG || '';
             const PREV_DIR = '/tmp/prev-reports';
             const hasPrev = !!prevThumbsBase && fs.existsSync(PREV_DIR);
+
+            // SHA256 helpers — parse published SHA256SUMS.txt for baselines
+            // and compute on-the-fly for the current attempt's local files
+            // so reviewers can verify downloads byte-for-byte.
+            const parseSums = (file) => {
+              const map = {};
+              try {
+                for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+                  const m = line.match(/^([0-9a-f]{64})\s+\*?(.+)$/i);
+                  if (m) map[m[2].trim()] = m[1].toLowerCase();
+                }
+              } catch {}
+              return map;
+            };
+            const baselineSumsCache = {};
+            const baselineSumsFor = (slug) => {
+              if (!(slug in baselineSumsCache)) {
+                baselineSumsCache[slug] = parseSums(path.join(PREV_DIR, slug, 'SHA256SUMS.txt'));
+              }
+              return baselineSumsCache[slug];
+            };
+            const currentSumsCache = {};
+            const currentSumFor = (name) => {
+              if (!(name in currentSumsCache)) {
+                try {
+                  const buf = fs.readFileSync(path.join(dir, name));
+                  currentSumsCache[name] = crypto.createHash('sha256').update(buf).digest('hex');
+                } catch { currentSumsCache[name] = ''; }
+              }
+              return currentSumsCache[name];
+            };
+            const shortSum = (s) => s ? `<code title="sha256:${s}">${s.slice(0, 12)}…</code>` : '<code>n/a</code>';
 
             // Tiny line-level unified diff (no deps).
             const diffLines = (a, b) => {
@@ -277,7 +319,7 @@ jobs:
                 const diff = e.diff ? `\n\n**diff**\n\`\`\`diff\n${e.diff}\n\`\`\`` : '';
                 const tlIdx = (r.timeline || []).indexOf(e);
                 const thumb = thumbsBase && tlIdx >= 0
-                  ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a></sub>\n`
+                  ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a> · sha256 ${shortSum(currentSumFor(`${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`))} (step) · ${shortSum(currentSumFor(`${r.name}-timeline.png`))} (timeline) · <a href="${thumbsBase}/SHA256SUMS.txt" title="Download SHA256SUMS.txt for this attempt" download>🔐 SHA256SUMS.txt</a></sub>\n`
                   : '';
 
                 // Cross-attempt comparison block: search previous attempts
@@ -309,13 +351,24 @@ jobs:
                   const baselineJsonUrl = `${matchedBase}/${r.name}.json`;
                   const baselineTimelinePng = `${matchedBase}/${r.name}-timeline.png`;
                   const baselineStepPng = `${matchedBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
+                  const baseSums = baselineSumsFor(matchedSlug);
+                  const baselineJsonName = `${r.name}.json`;
+                  const baselineTimelineName = `${r.name}-timeline.png`;
+                  const baselineStepName = `${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
+                  const baselineSumsUrl = `${matchedBase}/SHA256SUMS.txt`;
+                  const sumJson = baseSums[baselineJsonName] || '';
+                  const sumTimeline = baseSums[baselineTimelineName] || '';
+                  const sumStep = baseSums[baselineStepName] || '';
                   const baselineDownloadsBlock =
                     `<details><summary>⬇️ Individual downloads (fallback if ZIP fails)</summary>\n` +
                     `<p><sub>` +
-                    `<a href="${baselineJsonUrl}" title="Download baseline JSON report" download>⬇️ JSON report</a>` +
-                    ` · <a href="${baselineTimelinePng}" title="Download baseline full timeline PNG" download>⬇️ Full timeline</a>` +
-                    ` · <a href="${baselineStepPng}" title="Download baseline step #${pIdx + 1} thumbnail" download>⬇️ Step #${pIdx + 1} PNG</a>` +
-                    `</sub></p></details>`;
+                    `<a href="${baselineJsonUrl}" title="Download baseline JSON report" download>⬇️ JSON report</a> ${shortSum(sumJson)}` +
+                    ` · <a href="${baselineTimelinePng}" title="Download baseline full timeline PNG" download>⬇️ Full timeline</a> ${shortSum(sumTimeline)}` +
+                    ` · <a href="${baselineStepPng}" title="Download baseline step #${pIdx + 1} thumbnail" download>⬇️ Step #${pIdx + 1} PNG</a> ${shortSum(sumStep)}` +
+                    ` · <a href="${baselineSumsUrl}" title="Download SHA256SUMS.txt for the matched baseline attempt" download>🔐 SHA256SUMS.txt</a>` +
+                    `</sub></p>\n` +
+                    `<p><sub>Verify any file with <code>sha256sum -c SHA256SUMS.txt</code> (or compare the prefix shown above). The ZIP is generated on demand by <code>download-directory.github.io</code>; once extracted, its files match these same sums.</sub></p>` +
+                    `</details>`;
                   const baselineTreeUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/tree/e2e-artifacts/pr-${context.issue.number}/${matchedSlug}`;
                   const baselineZipUrl = `https://download-directory.github.io/?url=${encodeURIComponent(baselineTreeUrl)}`;
                   const baselineZipLink = `<a href="${baselineZipUrl}" title="Download all matched baseline artifacts (JSON + PNGs) as a single ZIP">📦 Download all as ZIP</a>`;
