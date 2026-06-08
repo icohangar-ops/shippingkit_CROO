@@ -59,6 +59,10 @@ and pushes them to an orphan `e2e-artifacts` branch under
 in the PR comment then embeds the matching thumbnail inline via
 `https://github.com/<owner>/<repo>/raw/e2e-artifacts/...`, so reviewers
 see the failed lane in context without expanding artifacts.
+Each thumbnail is wrapped in a click-to-expand link that opens the
+full-size `<name>-timeline.png` lane chart in a new tab (anchored to the
+focal step), so reviewers can drill from a single failing step into the
+entire run's timeline with one click.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
