@@ -37,6 +37,12 @@ pass/fail table to the GitHub job summary. Trigger ad-hoc runs via
 **Actions → ShipKit E2E → Run workflow** (override `provider` and
 `expect-type` inputs).
 
+On pull requests the workflow also posts (and updates in place) a sticky
+`ShipKit E2E` comment with the overall verdict, direct download links to
+the `shipkit-e2e-reports` + `shipkit-e2e-failing` artifacts, and a table
+of the first 10 failing/warning steps (`+ts`, phase, step, expected,
+actual) for at-a-glance triage without leaving the PR.
+
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
   so any provider that imports `@croo-network/sdk` runs unchanged.
