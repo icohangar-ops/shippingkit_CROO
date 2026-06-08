@@ -29,6 +29,13 @@ export function SiteNav() {
           >
             playground
           </Link>
+          <Link
+            to="/validate"
+            className="text-muted-foreground transition hover:text-foreground"
+            activeProps={{ className: "text-foreground" }}
+          >
+            validate
+          </Link>
           <a
             href="https://dorahacks.io/hackathon/croo-hackathon/detail"
             target="_blank"
