@@ -26,6 +26,17 @@ Every run writes a timestamped pair to `reports/`:
 Flags: `--report-dir <path>` (default `reports`), `--report-name <slug>`,
 `--no-report` to skip writing.
 
+## CI
+
+`.github/workflows/shipkit-e2e.yml` runs the static + E2E harness on every
+push / PR and always uploads `reports/*.html` + `reports/*.json` as the
+`shipkit-e2e-reports-<run-id>` artifact (30-day retention). On failure it
+also extracts every `fail`/`warn` timeline entry into a second
+`shipkit-e2e-failing-<run-id>` artifact for quick triage, and writes a
+pass/fail table to the GitHub job summary. Trigger ad-hoc runs via
+**Actions → ShipKit E2E → Run workflow** (override `provider` and
+`expect-type` inputs).
+
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
   so any provider that imports `@croo-network/sdk` runs unchanged.
