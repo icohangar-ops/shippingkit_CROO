@@ -237,7 +237,7 @@ export default cap.serve({
                     className={n.c === "signal" ? "fill-signal/10 stroke-signal" : "fill-accent/10 stroke-accent"}
                     strokeWidth="1" />
                   <text x={n.x} y={n.y + 4} textAnchor="middle"
-                    className={`fill-${n.c} font-mono`} fontSize="11">{n.l}</text>
+                    className={`font-mono ${n.c === "signal" ? "fill-signal" : "fill-accent"}`} fontSize="11">{n.l}</text>
                 </g>
               ))}
               <g className="text-signal" stroke="currentColor" strokeDasharray="3 3" fill="none" markerEnd="url(#arr)">
