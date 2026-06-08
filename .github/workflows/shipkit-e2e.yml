@@ -493,7 +493,7 @@ jobs:
                   const baselineZipLink = `<a href="${baselineZipUrl}" title="Download all matched baseline artifacts (JSON + PNGs) as a single ZIP">📦 Download all as ZIP</a>`;
                   compareBlock =
                     `\n\n<details><summary>🆚 Compare against previous attempt (<code>${matchedSlug}</code>)</summary>\n\n` +
-                    `<p><sub>${baselineRunLink} · ${baselineZipLink}</sub></p>\n` +
+                    `<p><sub>${baselineRunLink} · ${baselineZipLink}${verifyBadgeInline}</sub></p>\n` +
                     `${baselineDownloadsBlock}\n` +
                     `<table><tr>` +
                     `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
