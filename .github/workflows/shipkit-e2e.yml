@@ -89,6 +89,7 @@ jobs:
           }
           mkdir -p "$STAGE/$DEST"
           cp reports/*-timeline.png reports/*-step-*.png "$STAGE/$DEST/" 2>/dev/null || true
+          ls "$STAGE/$DEST/" || true
           cd "$STAGE"
           git config user.email "shipkit-e2e@users.noreply.github.com"
           git config user.name  "shipkit-e2e-bot"
