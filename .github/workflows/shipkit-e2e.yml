@@ -309,16 +309,20 @@ jobs:
                   const baselineJsonUrl = `${matchedBase}/${r.name}.json`;
                   const baselineTimelinePng = `${matchedBase}/${r.name}-timeline.png`;
                   const baselineStepPng = `${matchedBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
-                  const baselineDownloads =
-                    ` · <a href="${baselineJsonUrl}" title="Download baseline JSON report" download>⬇️ JSON report</a>` +
+                  const baselineDownloadsBlock =
+                    `<details><summary>⬇️ Individual downloads (fallback if ZIP fails)</summary>\n` +
+                    `<p><sub>` +
+                    `<a href="${baselineJsonUrl}" title="Download baseline JSON report" download>⬇️ JSON report</a>` +
                     ` · <a href="${baselineTimelinePng}" title="Download baseline full timeline PNG" download>⬇️ Full timeline</a>` +
-                    ` · <a href="${baselineStepPng}" title="Download baseline step #${pIdx + 1} thumbnail" download>⬇️ Step #${pIdx + 1} PNG</a>`;
+                    ` · <a href="${baselineStepPng}" title="Download baseline step #${pIdx + 1} thumbnail" download>⬇️ Step #${pIdx + 1} PNG</a>` +
+                    `</sub></p></details>`;
                   const baselineTreeUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/tree/e2e-artifacts/pr-${context.issue.number}/${matchedSlug}`;
                   const baselineZipUrl = `https://download-directory.github.io/?url=${encodeURIComponent(baselineTreeUrl)}`;
-                  const baselineZipLink = ` · <a href="${baselineZipUrl}" title="Download all matched baseline artifacts (JSON + PNGs) as a single ZIP">📦 Download all as ZIP</a>`;
+                  const baselineZipLink = `<a href="${baselineZipUrl}" title="Download all matched baseline artifacts (JSON + PNGs) as a single ZIP">📦 Download all as ZIP</a>`;
                   compareBlock =
                     `\n\n<details><summary>🆚 Compare against previous attempt (<code>${matchedSlug}</code>)</summary>\n\n` +
-                    `<p><sub>${baselineRunLink}${baselineDownloads}${baselineZipLink}</sub></p>\n` +
+                    `<p><sub>${baselineRunLink} · ${baselineZipLink}</sub></p>\n` +
+                    `${baselineDownloadsBlock}\n` +
                     `<table><tr>` +
                     `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
                     `<th align="left">Current (<code>+${e.ts}ms</code>)</th>` +
