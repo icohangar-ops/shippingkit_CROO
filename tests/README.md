@@ -81,6 +81,10 @@ Alongside that link, each block exposes direct download links for the matched
 baseline attempt's **⬇️ JSON report**, **⬇️ Full timeline** PNG, and the
 specific **⬇️ Step #N PNG** thumbnail, so reviewers can grab the underlying
 artifacts without leaving the PR comment.
+A **📦 Download all as ZIP** link is also included, which packages the entire
+matched baseline attempt directory (JSON + every timeline/step PNG) into a
+single archive via `download-directory.github.io`, so reviewers can grab the
+full baseline in one click.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
