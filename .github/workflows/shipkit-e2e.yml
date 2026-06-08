@@ -302,8 +302,13 @@ jobs:
                     p.actual !== undefined ? JSON.stringify(p.actual, null, 2) : '',
                     e.actual !== undefined ? JSON.stringify(e.actual, null, 2) : '',
                   );
+                  const matchedRunId = matchedSlug.split('-')[1];
+                  const baselineRunLink = matchedRunId
+                    ? ` — <a href="${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${matchedRunId}" title="Open baseline run on GitHub Actions">🔧 View baseline run →</a>`
+                    : '';
                   compareBlock =
                     `\n\n<details><summary>🆚 Compare against previous attempt (<code>${matchedSlug}</code>)</summary>\n\n` +
+                    `<p><sub>${baselineRunLink}</sub></p>\n` +
                     `<table><tr>` +
                     `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
                     `<th align="left">Current (<code>+${e.ts}ms</code>)</th>` +
