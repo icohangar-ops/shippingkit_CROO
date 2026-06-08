@@ -103,6 +103,15 @@ can't execute scripts, so the button reveals a ready-to-paste bash one-liner
 that `curl`s every artifact + `SHA256SUMS.txt` into a temp dir and pipes the
 relevant lines through `sha256sum -c -`, producing a per-file `OK`/`FAILED`
 report in a single command.
+In addition, a dedicated CI step (**Verify published baseline SHA256
+checksums**) runs automatically on every PR: it re-downloads every published
+baseline artifact from the raw URL and compares each file against the
+attempt's `SHA256SUMS.txt`. The result is rendered at the top of the PR
+comment as a 🟢/🔴 **Baseline SHA256 verification** summary (per-attempt
+pass/fail counts, with mismatching file names + hash prefixes when failures
+occur), and a matching badge appears inline in every comparison block next
+to the **🔧 View baseline run →** / **📦 Download all as ZIP** links — so
+reviewers see a tamper-evident pass/fail without running anything manually.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,

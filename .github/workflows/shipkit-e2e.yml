@@ -132,6 +132,61 @@ jobs:
           git push -q "https://x-access-token:${GH_TOKEN}@github.com/${REPO_FULL}.git" HEAD:e2e-artifacts
           echo "base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/${DEST}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify published baseline SHA256 checksums
+        id: verify_baselines
+        if: always() && github.event_name == 'pull_request' && steps.publish_thumbs.outputs.prev_slugs != ''
+        env:
+          REPO_FULL: ${{ github.repository }}
+          PREV_SLUGS: ${{ steps.publish_thumbs.outputs.prev_slugs }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # Re-download every published baseline artifact + its SHA256SUMS.txt
+          # from the e2e-artifacts branch and run `sha256sum -c` against the
+          # raw files. Result is written as JSON for the PR comment step to
+          # render a pass/fail summary alongside the comparison blocks.
+          set -u
+          OUT=/tmp/baseline-verify.json
+          mkdir -p /tmp/verify-baselines
+          printf '{"slugs":[' > "$OUT"
+          first=1
+          IFS=',' read -ra SLUGS <<< "$PREV_SLUGS"
+          for slug in "${SLUGS[@]}"; do
+            [ -n "$slug" ] || continue
+            base="https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${slug}"
+            work=/tmp/verify-baselines/$slug
+            mkdir -p "$work"
+            sums_status="missing"; pass=0; fail=0; total=0; detail=""
+            if curl -fsSL "$base/SHA256SUMS.txt" -o "$work/SHA256SUMS.txt"; then
+              sums_status="ok"
+              # Download every file referenced by SHA256SUMS.txt
+              while read -r hash name; do
+                [ -n "$name" ] || continue
+                name="${name#\*}"
+                total=$((total + 1))
+                if curl -fsSL "$base/$name" -o "$work/$name"; then
+                  actual=$(sha256sum "$work/$name" | awk '{print $1}')
+                  if [ "$actual" = "$hash" ]; then
+                    pass=$((pass + 1))
+                  else
+                    fail=$((fail + 1))
+                    detail="${detail}${detail:+\\n}${name}: expected ${hash:0:12}…, got ${actual:0:12}…"
+                  fi
+                else
+                  fail=$((fail + 1))
+                  detail="${detail}${detail:+\\n}${name}: download failed"
+                fi
+              done < "$work/SHA256SUMS.txt"
+            fi
+            [ $first -eq 1 ] || printf ',' >> "$OUT"
+            first=0
+            printf '{"slug":"%s","sums":"%s","pass":%d,"fail":%d,"total":%d,"detail":"%s"}' \
+              "$slug" "$sums_status" "$pass" "$fail" "$total" "$detail" >> "$OUT"
+            echo "  → ${slug}: sums=${sums_status} pass=${pass} fail=${fail} total=${total}"
+          done
+          printf ']}' >> "$OUT"
+          cat "$OUT"
+          echo "report=$OUT" >> "$GITHUB_OUTPUT"
+
       - name: Job summary
         if: always()
         run: |
@@ -199,6 +254,7 @@ jobs:
           PREV_THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.prev_base_url }}
           PREV_SLUG: ${{ steps.publish_thumbs.outputs.prev_slug }}
           PREV_SLUGS: ${{ steps.publish_thumbs.outputs.prev_slugs }}
+          BASELINE_VERIFY_REPORT: ${{ steps.verify_baselines.outputs.report }}
         with:
           script: |
             const fs = require('fs');
@@ -237,6 +293,40 @@ jobs:
               }
               return baselineSumsCache[slug];
             };
+
+            // Automated baseline verification report (per-slug pass/fail).
+            // Produced by the "Verify published baseline SHA256 checksums"
+            // step, which re-downloads every artifact from the raw URL and
+            // runs sha256sum -c against the published SHA256SUMS.txt.
+            let verifySlugs = [];
+            try {
+              const p = process.env.BASELINE_VERIFY_REPORT;
+              if (p && fs.existsSync(p)) {
+                verifySlugs = JSON.parse(fs.readFileSync(p, 'utf8')).slugs || [];
+              }
+            } catch {}
+            const verifyBySlug = Object.fromEntries(verifySlugs.map(s => [s.slug, s]));
+            const verifyBadge = (s) => {
+              if (!s || s.sums !== 'ok') return '⚪ checksums file missing';
+              if (s.fail === 0 && s.pass > 0) return `🟢 ${s.pass}/${s.total} verified`;
+              if (s.fail > 0) return `🔴 ${s.fail}/${s.total} mismatch`;
+              return '⚪ no files';
+            };
+            const overallVerify = (() => {
+              if (!verifySlugs.length) return '';
+              const totals = verifySlugs.reduce((a, s) => ({
+                pass: a.pass + (s.pass || 0), fail: a.fail + (s.fail || 0), total: a.total + (s.total || 0),
+              }), { pass: 0, fail: 0, total: 0 });
+              const icon = totals.fail === 0 ? '🟢' : '🔴';
+              const status = totals.fail === 0 ? 'All baseline artifacts verified' : `${totals.fail} mismatched file(s) detected`;
+              const rows = verifySlugs.map(s => {
+                const det = s.detail ? `<br><sub><code>${s.detail.replace(/\\n/g, '<br>')}</code></sub>` : '';
+                return `<tr><td><code>${s.slug}</code></td><td>${verifyBadge(s)}</td><td><sub>${s.pass} pass · ${s.fail} fail · ${s.total} total</sub>${det}</td></tr>`;
+              }).join('');
+              return `\n<details${totals.fail ? ' open' : ''}><summary>${icon} <b>Baseline SHA256 verification</b> — ${status} (${totals.pass}/${totals.total} files across ${verifySlugs.length} attempt${verifySlugs.length === 1 ? '' : 's'})</summary>\n\n` +
+                     `<sub>Automated check: each published baseline artifact was re-downloaded from the raw URL and compared against the attempt's <code>SHA256SUMS.txt</code>.</sub>\n\n` +
+                     `<table><tr><th align="left">Attempt</th><th align="left">Result</th><th align="left">Details</th></tr>${rows}</table>\n</details>\n`;
+            })();
             const currentSumsCache = {};
             const currentSumFor = (name) => {
               if (!(name in currentSumsCache)) {
@@ -372,6 +462,10 @@ jobs:
                   const baselineRunLink = matchedRunId
                     ? ` — <a href="${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${matchedRunId}" title="Open baseline run on GitHub Actions">🔧 View baseline run →</a>`
                     : '';
+                  const verifyForSlug = verifyBySlug[matchedSlug];
+                  const verifyBadgeInline = verifyForSlug
+                    ? ` · <span title="Automated CI re-downloaded each baseline artifact and ran sha256sum -c against the published SHA256SUMS.txt">${verifyBadge(verifyForSlug)}</span>`
+                    : '';
                   const baselineJsonUrl = `${matchedBase}/${r.name}.json`;
                   const baselineTimelinePng = `${matchedBase}/${r.name}-timeline.png`;
                   const baselineStepPng = `${matchedBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
@@ -399,7 +493,7 @@ jobs:
                   const baselineZipLink = `<a href="${baselineZipUrl}" title="Download all matched baseline artifacts (JSON + PNGs) as a single ZIP">📦 Download all as ZIP</a>`;
                   compareBlock =
                     `\n\n<details><summary>🆚 Compare against previous attempt (<code>${matchedSlug}</code>)</summary>\n\n` +
-                    `<p><sub>${baselineRunLink} · ${baselineZipLink}</sub></p>\n` +
+                    `<p><sub>${baselineRunLink} · ${baselineZipLink}${verifyBadgeInline}</sub></p>\n` +
                     `${baselineDownloadsBlock}\n` +
                     `<table><tr>` +
                     `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
@@ -439,6 +533,7 @@ jobs:
                 ? `_Failing-step thumbnails embedded below render the focal event with two-step context on either side. Full lane chart in the artifact bundle._`
                 : `_The artifact bundle includes a rendered \`*-timeline.png\` per report — download it for the full lane chart._`,
               '',
+              overallVerify,
               ...sections,
             ].join('\n');
 
