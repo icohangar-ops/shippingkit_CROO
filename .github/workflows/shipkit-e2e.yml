@@ -75,6 +75,7 @@ jobs:
           fi
 
       - name: Upload reports (HTML + JSON)
+        id: upload_reports
         if: always() && hashFiles('reports/**') != ''
         uses: actions/upload-artifact@v4
         with:
@@ -96,9 +97,84 @@ jobs:
           done
 
       - name: Upload failing-trace artifact
+        id: upload_failing
         if: failure() && hashFiles('reports/failing/*.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: shipkit-e2e-failing-${{ github.run_id }}-${{ github.run_attempt }}
           path: reports/failing/*.json
           retention-days: 30
+
+      - name: PR check summary comment
+        if: always() && github.event_name == 'pull_request' && hashFiles('reports/*.json') != ''
+        uses: actions/github-script@v7
+        env:
+          REPORTS_URL: ${{ steps.upload_reports.outputs.artifact-url }}
+          FAILING_URL: ${{ steps.upload_failing.outputs.artifact-url }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const dir = 'reports';
+            const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+            if (!files.length) return;
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const reportsUrl = process.env.REPORTS_URL || `${runUrl}#artifacts`;
+            const failingUrl = process.env.FAILING_URL || '';
+
+            const MARKER = '<!-- shipkit-e2e-summary -->';
+            const sections = [];
+            let anyFail = false, totalOk = 0, totalFail = 0, totalWarn = 0;
+
+            for (const f of files) {
+              const r = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+              totalOk += r.counts.ok; totalFail += r.counts.fail; totalWarn += r.counts.warn;
+              const failed = (r.timeline || []).filter(e => e.status === 'fail' || e.status === 'warn');
+              const pass = r.exitCode === 0;
+              if (!pass) anyFail = true;
+              const badge = pass ? (r.counts.warn ? '🟡 pass (warnings)' : '🟢 pass') : '🔴 fail';
+              const head = `### ${badge} — \`${r.name}\`\n` +
+                `provider \`${r.provider}\` · ${r.durationMs}ms · ${r.counts.ok} ok / ${r.counts.fail} fail / ${r.counts.warn} warn`;
+              if (!failed.length) { sections.push(head); continue; }
+              const rows = failed.slice(0, 10).map(e => {
+                const icon = e.status === 'fail' ? '❌' : '⚠️';
+                const exp = e.expected !== undefined ? '`' + JSON.stringify(e.expected).slice(0, 80) + '`' : '—';
+                const act = e.actual   !== undefined ? '`' + JSON.stringify(e.actual).slice(0, 80) + '`' : '—';
+                return `| +${e.ts}ms | ${e.phase} | ${icon} ${e.label.replace(/\|/g, '\\|')} | ${exp} | ${act} |`;
+              }).join('\n');
+              const more = failed.length > 10 ? `\n_+${failed.length - 10} more — see HTML report._` : '';
+              sections.push(`${head}\n\n| at | phase | step | expected | actual |\n|---|---|---|---|---|\n${rows}${more}`);
+            }
+
+            const overall = anyFail ? '🔴 **FAIL**' : (totalWarn ? '🟡 **PASS (with warnings)**' : '🟢 **PASS**');
+            const links = [
+              `[📦 HTML + JSON reports](${reportsUrl})`,
+              failingUrl ? `[⬇ Failing traces](${failingUrl})` : null,
+              `[🔧 Run logs](${runUrl})`,
+            ].filter(Boolean).join(' · ');
+
+            const body = [
+              MARKER,
+              `## ShipKit E2E ${overall}`,
+              `${totalOk} ok · ${totalFail} fail · ${totalWarn} warn — ${links}`,
+              '',
+              ...sections,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const prev = comments.find(c => c.body && c.body.includes(MARKER));
+            if (prev) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: prev.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }
