@@ -102,6 +102,9 @@ jobs:
               prev_slug=$(basename "$prev_dir")
               mkdir -p "/tmp/prev-reports/${prev_slug}"
               cp "$prev_dir"/*.json "/tmp/prev-reports/${prev_slug}/" 2>/dev/null || true
+              # Stash published SHA256SUMS.txt so the PR comment can surface
+              # verified checksums for each matched baseline artifact.
+              cp "$prev_dir"/SHA256SUMS.txt "/tmp/prev-reports/${prev_slug}/" 2>/dev/null || true
             done
             echo "prev_base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${PREV_SLUG}" >> "$GITHUB_OUTPUT"
             echo "prev_slug=${PREV_SLUG}" >> "$GITHUB_OUTPUT"
@@ -114,6 +117,12 @@ jobs:
           fi
           # Publish current run: timeline + per-step PNGs + JSON (for next-run diffs).
           cp reports/*-timeline.png reports/*-step-*.png reports/*.json "$STAGE/$DEST/" 2>/dev/null || true
+          # Generate SHA256 checksums so reviewers can verify downloaded
+          # artifacts (individual files AND files extracted from the ZIP)
+          # match exactly what was published from this run.
+          ( cd "$STAGE/$DEST" && \
+            sha256sum *.json *.png 2>/dev/null | LC_ALL=C sort -k2 > SHA256SUMS.txt && \
+            echo "Published SHA256SUMS.txt:" && cat SHA256SUMS.txt ) || true
           ls "$STAGE/$DEST/" || true
           cd "$STAGE"
           git config user.email "shipkit-e2e@users.noreply.github.com"
