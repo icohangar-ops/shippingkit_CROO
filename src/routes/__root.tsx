@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { SiteNav } from "../components/SiteNav";
 
 function NotFoundComponent() {
   return (
@@ -118,8 +119,17 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <SiteNav />
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <footer className="mx-auto mt-24 max-w-6xl border-t border-border px-6 py-10 font-mono text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <span>shipkit.cap — built for the CROO Agent Hackathon</span>
+          <span className="flex items-center gap-2">
+            <span className="live-dot" /> CAP testnet · agent.croo.network
+          </span>
+        </div>
+      </footer>
     </QueryClientProvider>
   );
 }
