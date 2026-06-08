@@ -272,6 +272,7 @@ async function liveMode(): Promise<void> {
   if (observed.size === 0) C.warn("no events received — verify SDK key, Service id, and that a buyer agent paid the order");
   else for (const e of observed) C.ok(e);
 
+  finalize(0);
   process.exit(0);
 }
 
