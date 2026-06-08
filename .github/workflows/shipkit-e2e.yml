@@ -147,18 +147,17 @@ jobs:
           set -u
           OUT=/tmp/baseline-verify.json
           mkdir -p /tmp/verify-baselines
-          printf '{"slugs":[' > "$OUT"
-          first=1
+          slugs_json='[]'
           IFS=',' read -ra SLUGS <<< "$PREV_SLUGS"
           for slug in "${SLUGS[@]}"; do
             [ -n "$slug" ] || continue
             base="https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${slug}"
             work=/tmp/verify-baselines/$slug
             mkdir -p "$work"
-            sums_status="missing"; pass=0; fail=0; total=0; detail=""
+            sums_status="missing"; pass=0; fail=0; total=0
+            mismatches_json='[]'
             if curl -fsSL "$base/SHA256SUMS.txt" -o "$work/SHA256SUMS.txt"; then
               sums_status="ok"
-              # Download every file referenced by SHA256SUMS.txt
               while read -r hash name; do
                 [ -n "$name" ] || continue
                 name="${name#\*}"
@@ -169,21 +168,25 @@ jobs:
                     pass=$((pass + 1))
                   else
                     fail=$((fail + 1))
-                    detail="${detail}${detail:+\\n}${name}: expected ${hash:0:12}…, got ${actual:0:12}…"
+                    mismatches_json=$(jq -c --arg n "$name" --arg e "$hash" --arg a "$actual" \
+                      '. + [{name:$n, expected:$e, actual:$a, reason:"hash mismatch"}]' <<< "$mismatches_json")
                   fi
                 else
                   fail=$((fail + 1))
-                  detail="${detail}${detail:+\\n}${name}: download failed"
+                  mismatches_json=$(jq -c --arg n "$name" --arg e "$hash" \
+                    '. + [{name:$n, expected:$e, actual:"", reason:"download failed"}]' <<< "$mismatches_json")
                 fi
               done < "$work/SHA256SUMS.txt"
             fi
-            [ $first -eq 1 ] || printf ',' >> "$OUT"
-            first=0
-            printf '{"slug":"%s","sums":"%s","pass":%d,"fail":%d,"total":%d,"detail":"%s"}' \
-              "$slug" "$sums_status" "$pass" "$fail" "$total" "$detail" >> "$OUT"
+            slugs_json=$(jq -c \
+              --arg slug "$slug" --arg sums "$sums_status" \
+              --argjson pass "$pass" --argjson fail "$fail" --argjson total "$total" \
+              --argjson mismatches "$mismatches_json" \
+              '. + [{slug:$slug, sums:$sums, pass:$pass, fail:$fail, total:$total, mismatches:$mismatches}]' \
+              <<< "$slugs_json")
             echo "  → ${slug}: sums=${sums_status} pass=${pass} fail=${fail} total=${total}"
           done
-          printf ']}' >> "$OUT"
+          jq -n --argjson slugs "$slugs_json" '{slugs:$slugs}' > "$OUT"
           cat "$OUT"
           echo "report=$OUT" >> "$GITHUB_OUTPUT"
 
@@ -320,12 +323,27 @@ jobs:
               const icon = totals.fail === 0 ? '🟢' : '🔴';
               const status = totals.fail === 0 ? 'All baseline artifacts verified' : `${totals.fail} mismatched file(s) detected`;
               const rows = verifySlugs.map(s => {
-                const det = s.detail ? `<br><sub><code>${s.detail.replace(/\\n/g, '<br>')}</code></sub>` : '';
-                return `<tr><td><code>${s.slug}</code></td><td>${verifyBadge(s)}</td><td><sub>${s.pass} pass · ${s.fail} fail · ${s.total} total</sub>${det}</td></tr>`;
+                return `<tr><td><code>${s.slug}</code></td><td>${verifyBadge(s)}</td><td><sub>${s.pass} pass · ${s.fail} fail · ${s.total} total</sub></td></tr>`;
               }).join('');
+              // Per-file mismatch breakdown — expected vs actual full SHA-256
+              // for every file that failed verification, so reviewers can see
+              // exactly which artifact diverged and by how much.
+              const allMismatches = verifySlugs.flatMap(s => (s.mismatches || []).map(m => ({ ...m, slug: s.slug })));
+              const mismatchSection = allMismatches.length
+                ? `\n<details open><summary>🔴 <b>Mismatching files</b> (${allMismatches.length}) — expected vs actual SHA-256</summary>\n\n` +
+                  `<table>\n<tr><th align="left">Attempt</th><th align="left">File</th><th align="left">Reason</th><th align="left">Expected</th><th align="left">Actual</th></tr>\n` +
+                  allMismatches.map(m => {
+                    const exp = m.expected ? `<code title="sha256:${m.expected}">${m.expected.slice(0, 16)}…</code>` : '<code>—</code>';
+                    const act = m.actual ? `<code title="sha256:${m.actual}">${m.actual.slice(0, 16)}…</code>` : '<code>—</code>';
+                    return `<tr><td><code>${m.slug}</code></td><td><code>${m.name}</code></td><td><sub>${m.reason || 'mismatch'}</sub></td><td>${exp}</td><td>${act}</td></tr>`;
+                  }).join('\n') +
+                  `\n</table>\n\n<sub>Hover any hash to see the full 64-char SHA-256. A mismatch means the file currently served from the <code>e2e-artifacts</code> branch no longer matches the hash recorded in its <code>SHA256SUMS.txt</code> at publish time.</sub>\n</details>\n`
+                : '';
               return `\n<details${totals.fail ? ' open' : ''}><summary>${icon} <b>Baseline SHA256 verification</b> — ${status} (${totals.pass}/${totals.total} files across ${verifySlugs.length} attempt${verifySlugs.length === 1 ? '' : 's'})</summary>\n\n` +
                      `<sub>Automated check: each published baseline artifact was re-downloaded from the raw URL and compared against the attempt's <code>SHA256SUMS.txt</code>.</sub>\n\n` +
-                     `<table><tr><th align="left">Attempt</th><th align="left">Result</th><th align="left">Details</th></tr>${rows}</table>\n</details>\n`;
+                     `<table><tr><th align="left">Attempt</th><th align="left">Result</th><th align="left">Counts</th></tr>${rows}</table>\n` +
+                     mismatchSection +
+                     `</details>\n`;
             })();
             const currentSumsCache = {};
             const currentSumFor = (name) => {

@@ -112,6 +112,12 @@ pass/fail counts, with mismatching file names + hash prefixes when failures
 occur), and a matching badge appears inline in every comparison block next
 to the **🔧 View baseline run →** / **📦 Download all as ZIP** links — so
 reviewers see a tamper-evident pass/fail without running anything manually.
+When any file fails verification, the summary additionally renders a
+**🔴 Mismatching files** `<details>` section (auto-expanded) listing every
+offending file with its attempt slug, reason, and the full expected vs actual
+SHA-256 (truncated to 16 chars with the complete 64-char hash on hover) — so
+reviewers can pinpoint exactly which artifact diverged from what was
+originally published.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
