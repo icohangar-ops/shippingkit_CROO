@@ -189,6 +189,7 @@ jobs:
           THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.base_url }}
           PREV_THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.prev_base_url }}
           PREV_SLUG: ${{ steps.publish_thumbs.outputs.prev_slug }}
+          PREV_SLUGS: ${{ steps.publish_thumbs.outputs.prev_slugs }}
         with:
           script: |
             const fs = require('fs');
@@ -220,6 +221,25 @@ jobs:
               return out.join('\n');
             };
             const stepKey = (e) => `${e.phase}::${e.label}`;
+            const prevSlugs = (process.env.PREV_SLUGS || '').split(',').filter(Boolean);
+
+            const findPrevStep = (currentStep, filename) => {
+              if (!prevSlugs.length) return null;
+              const key = stepKey(currentStep);
+              for (const slug of prevSlugs) {
+                const prevPath = path.join(PREV_DIR, slug, filename);
+                if (!fs.existsSync(prevPath)) continue;
+                let prevReport;
+                try { prevReport = JSON.parse(fs.readFileSync(prevPath, 'utf8')); } catch { continue; }
+                const pTimeline = prevReport.timeline || [];
+                const pIdx = pTimeline.findIndex(x => stepKey(x) === key);
+                if (pIdx >= 0) {
+                  const baseUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/raw/e2e-artifacts/pr-${context.issue.number}/${slug}`;
+                  return { report: prevReport, step: pTimeline[pIdx], idx: pIdx, slug, baseUrl };
+                }
+              }
+              return null;
+            };
 
             const MARKER = '<!-- shipkit-e2e-summary -->';
             const sections = [];
