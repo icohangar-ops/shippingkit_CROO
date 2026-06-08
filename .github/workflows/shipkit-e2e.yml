@@ -132,6 +132,61 @@ jobs:
           git push -q "https://x-access-token:${GH_TOKEN}@github.com/${REPO_FULL}.git" HEAD:e2e-artifacts
           echo "base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/${DEST}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify published baseline SHA256 checksums
+        id: verify_baselines
+        if: always() && github.event_name == 'pull_request' && steps.publish_thumbs.outputs.prev_slugs != ''
+        env:
+          REPO_FULL: ${{ github.repository }}
+          PREV_SLUGS: ${{ steps.publish_thumbs.outputs.prev_slugs }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # Re-download every published baseline artifact + its SHA256SUMS.txt
+          # from the e2e-artifacts branch and run `sha256sum -c` against the
+          # raw files. Result is written as JSON for the PR comment step to
+          # render a pass/fail summary alongside the comparison blocks.
+          set -u
+          OUT=/tmp/baseline-verify.json
+          mkdir -p /tmp/verify-baselines
+          printf '{"slugs":[' > "$OUT"
+          first=1
+          IFS=',' read -ra SLUGS <<< "$PREV_SLUGS"
+          for slug in "${SLUGS[@]}"; do
+            [ -n "$slug" ] || continue
+            base="https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${slug}"
+            work=/tmp/verify-baselines/$slug
+            mkdir -p "$work"
+            sums_status="missing"; pass=0; fail=0; total=0; detail=""
+            if curl -fsSL "$base/SHA256SUMS.txt" -o "$work/SHA256SUMS.txt"; then
+              sums_status="ok"
+              # Download every file referenced by SHA256SUMS.txt
+              while read -r hash name; do
+                [ -n "$name" ] || continue
+                name="${name#\*}"
+                total=$((total + 1))
+                if curl -fsSL "$base/$name" -o "$work/$name"; then
+                  actual=$(sha256sum "$work/$name" | awk '{print $1}')
+                  if [ "$actual" = "$hash" ]; then
+                    pass=$((pass + 1))
+                  else
+                    fail=$((fail + 1))
+                    detail="${detail}${detail:+\\n}${name}: expected ${hash:0:12}…, got ${actual:0:12}…"
+                  fi
+                else
+                  fail=$((fail + 1))
+                  detail="${detail}${detail:+\\n}${name}: download failed"
+                fi
+              done < "$work/SHA256SUMS.txt"
+            fi
+            [ $first -eq 1 ] || printf ',' >> "$OUT"
+            first=0
+            printf '{"slug":"%s","sums":"%s","pass":%d,"fail":%d,"total":%d,"detail":"%s"}' \
+              "$slug" "$sums_status" "$pass" "$fail" "$total" "$detail" >> "$OUT"
+            echo "  → ${slug}: sums=${sums_status} pass=${pass} fail=${fail} total=${total}"
+          done
+          printf ']}' >> "$OUT"
+          cat "$OUT"
+          echo "report=$OUT" >> "$GITHUB_OUTPUT"
+
       - name: Job summary
         if: always()
         run: |
