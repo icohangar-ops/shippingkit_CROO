@@ -1,0 +1,269 @@
+{
+  "name": "e2e-sample-provider-1780884581601",
+  "provider": "/dev-server/tests/fixtures/sample-provider.ts",
+  "mode": "mock",
+  "expectType": "text",
+  "startedAt": "2026-06-08T02:09:41.601Z",
+  "durationMs": 1314,
+  "exitCode": 0,
+  "counts": {
+    "ok": 9,
+    "fail": 0,
+    "warn": 0,
+    "calls": 4,
+    "events": 5
+  },
+  "timeline": [
+    {
+      "ts": 5,
+      "phase": "call",
+      "label": "AgentClient([{\"baseURL\":\"https://mock.croo.local\",\"wsURL\":\"wss://mock.croo.local/ws\"},\"croo_sk_mock_e2e_test_key\"])",
+      "status": "info",
+      "actual": [
+        {
+          "baseURL": "https://mock.croo.local",
+          "wsURL": "wss://mock.croo.local/ws"
+        },
+        "croo_sk_mock_e2e_test_key"
+      ]
+    },
+    {
+      "ts": 5,
+      "phase": "call",
+      "label": "connectWebSocket([])",
+      "status": "info",
+      "actual": []
+    },
+    {
+      "ts": 6,
+      "phase": "subscribe",
+      "label": "stream.on(NegotiationCreated)",
+      "status": "info"
+    },
+    {
+      "ts": 6,
+      "phase": "subscribe",
+      "label": "stream.on(OrderPaid)",
+      "status": "info"
+    },
+    {
+      "ts": 6,
+      "phase": "subscribe",
+      "label": "stream.on(OrderCompleted)",
+      "status": "info"
+    },
+    {
+      "ts": 58,
+      "phase": "assert",
+      "label": "AgentClient(baseURL=https://mock.croo.local, wsURL=wss://mock.croo.local/ws)",
+      "status": "ok",
+      "actual": {
+        "baseURL": "https://mock.croo.local",
+        "wsURL": "wss://mock.croo.local/ws",
+        "sdkKey": "croo_sk_mock…"
+      }
+    },
+    {
+      "ts": 58,
+      "phase": "assert",
+      "label": "connectWebSocket()",
+      "status": "ok"
+    },
+    {
+      "ts": 58,
+      "phase": "assert",
+      "label": "EventType.NegotiationCreated",
+      "status": "ok"
+    },
+    {
+      "ts": 58,
+      "phase": "assert",
+      "label": "EventType.OrderPaid",
+      "status": "ok"
+    },
+    {
+      "ts": 58,
+      "phase": "event",
+      "label": "emit NegotiationCreated",
+      "status": "info",
+      "actual": {
+        "negotiation_id": "neg_e2e_001",
+        "service_id": "svc_test",
+        "requester": "did:croo:test-buyer"
+      }
+    },
+    {
+      "ts": 58,
+      "phase": "call",
+      "label": "acceptNegotiation([\"neg_e2e_001\"])",
+      "status": "info",
+      "actual": [
+        "neg_e2e_001"
+      ]
+    },
+    {
+      "ts": 210,
+      "phase": "assert",
+      "label": "NegotiationCreated → acceptNegotiation(\"neg_e2e_001\")",
+      "status": "ok",
+      "expected": {
+        "method": "acceptNegotiation",
+        "args": [
+          "neg_e2e_001"
+        ]
+      },
+      "actual": {
+        "method": "acceptNegotiation",
+        "args": [
+          "neg_e2e_001"
+        ]
+      }
+    },
+    {
+      "ts": 210,
+      "phase": "event",
+      "label": "emit OrderCreated",
+      "status": "info",
+      "actual": {
+        "order_id": "order_e2e_001",
+        "negotiation_id": "neg_e2e_001"
+      }
+    },
+    {
+      "ts": 260,
+      "phase": "assert",
+      "label": "OrderCreated (no provider action required)",
+      "status": "ok"
+    },
+    {
+      "ts": 260,
+      "phase": "event",
+      "label": "emit OrderPaid",
+      "status": "info",
+      "actual": {
+        "order_id": "order_e2e_001",
+        "amount": "0.05",
+        "currency": "USDC"
+      }
+    },
+    {
+      "ts": 261,
+      "phase": "call",
+      "label": "deliverOrder([\"order_e2e_001\",{\"type\":\"text\",\"content\":\"Echo of order order_e2e_001 at 2026-06-08T02:09:41.861Z\"}])",
+      "status": "info",
+      "actual": [
+        "order_e2e_001",
+        {
+          "type": "text",
+          "content": "Echo of order order_e2e_001 at 2026-06-08T02:09:41.861Z"
+        }
+      ]
+    },
+    {
+      "ts": 861,
+      "phase": "assert",
+      "label": "OrderPaid → deliverOrder (type=text, content=Echo of order order_e2e_001 at 2026-06-08T02:09:41.861Z…)",
+      "status": "ok",
+      "expected": {
+        "method": "deliverOrder",
+        "args": [
+          "order_e2e_001",
+          {
+            "type": "text",
+            "content": "<any>"
+          }
+        ]
+      },
+      "actual": {
+        "method": "deliverOrder",
+        "args": [
+          "order_e2e_001",
+          {
+            "type": "text",
+            "content": "Echo of order order_e2e_001 at 2026-06-08T02:09:41.861Z"
+          }
+        ]
+      }
+    },
+    {
+      "ts": 861,
+      "phase": "event",
+      "label": "emit OrderPaid",
+      "status": "info",
+      "actual": {
+        "order_id": "order_e2e_001",
+        "amount": "0.05",
+        "currency": "USDC"
+      }
+    },
+    {
+      "ts": 1262,
+      "phase": "assert",
+      "label": "duplicate OrderPaid suppressed",
+      "status": "ok",
+      "expected": {
+        "deliverOrderCalls": 1
+      },
+      "actual": {
+        "deliverOrderCalls": 1
+      }
+    },
+    {
+      "ts": 1262,
+      "phase": "event",
+      "label": "emit OrderCompleted",
+      "status": "info",
+      "actual": {
+        "order_id": "order_e2e_001",
+        "settled_at": "2026-06-08T02:09:42.863Z"
+      }
+    },
+    {
+      "ts": 1313,
+      "phase": "assert",
+      "label": "OrderCompleted dispatched",
+      "status": "ok"
+    }
+  ],
+  "calls": [
+    {
+      "method": "AgentClient",
+      "args": [
+        {
+          "baseURL": "https://mock.croo.local",
+          "wsURL": "wss://mock.croo.local/ws"
+        },
+        "croo_sk_mock_e2e_test_key"
+      ],
+      "at": 1780884581606
+    },
+    {
+      "method": "connectWebSocket",
+      "args": [],
+      "at": 1780884581606
+    },
+    {
+      "method": "acceptNegotiation",
+      "args": [
+        "neg_e2e_001"
+      ],
+      "at": 1780884581659
+    },
+    {
+      "method": "deliverOrder",
+      "args": [
+        "order_e2e_001",
+        {
+          "type": "text",
+          "content": "Echo of order order_e2e_001 at 2026-06-08T02:09:41.861Z"
+        }
+      ],
+      "at": 1780884581862
+    }
+  ],
+  "subscriptions": [
+    "NegotiationCreated",
+    "OrderPaid",
+    "OrderCompleted"
+  ]
+}
