@@ -529,6 +529,7 @@ jobs:
                 ? `_Failing-step thumbnails embedded below render the focal event with two-step context on either side. Full lane chart in the artifact bundle._`
                 : `_The artifact bundle includes a rendered \`*-timeline.png\` per report — download it for the full lane chart._`,
               '',
+              overallVerify,
               ...sections,
             ].join('\n');
 
