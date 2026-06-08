@@ -147,18 +147,17 @@ jobs:
           set -u
           OUT=/tmp/baseline-verify.json
           mkdir -p /tmp/verify-baselines
-          printf '{"slugs":[' > "$OUT"
-          first=1
+          slugs_json='[]'
           IFS=',' read -ra SLUGS <<< "$PREV_SLUGS"
           for slug in "${SLUGS[@]}"; do
             [ -n "$slug" ] || continue
             base="https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${slug}"
             work=/tmp/verify-baselines/$slug
             mkdir -p "$work"
-            sums_status="missing"; pass=0; fail=0; total=0; detail=""
+            sums_status="missing"; pass=0; fail=0; total=0
+            mismatches_json='[]'
             if curl -fsSL "$base/SHA256SUMS.txt" -o "$work/SHA256SUMS.txt"; then
               sums_status="ok"
-              # Download every file referenced by SHA256SUMS.txt
               while read -r hash name; do
                 [ -n "$name" ] || continue
                 name="${name#\*}"
@@ -169,21 +168,25 @@ jobs:
                     pass=$((pass + 1))
                   else
                     fail=$((fail + 1))
-                    detail="${detail}${detail:+\\n}${name}: expected ${hash:0:12}…, got ${actual:0:12}…"
+                    mismatches_json=$(jq -c --arg n "$name" --arg e "$hash" --arg a "$actual" \
+                      '. + [{name:$n, expected:$e, actual:$a, reason:"hash mismatch"}]' <<< "$mismatches_json")
                   fi
                 else
                   fail=$((fail + 1))
-                  detail="${detail}${detail:+\\n}${name}: download failed"
+                  mismatches_json=$(jq -c --arg n "$name" --arg e "$hash" \
+                    '. + [{name:$n, expected:$e, actual:"", reason:"download failed"}]' <<< "$mismatches_json")
                 fi
               done < "$work/SHA256SUMS.txt"
             fi
-            [ $first -eq 1 ] || printf ',' >> "$OUT"
-            first=0
-            printf '{"slug":"%s","sums":"%s","pass":%d,"fail":%d,"total":%d,"detail":"%s"}' \
-              "$slug" "$sums_status" "$pass" "$fail" "$total" "$detail" >> "$OUT"
+            slugs_json=$(jq -c \
+              --arg slug "$slug" --arg sums "$sums_status" \
+              --argjson pass "$pass" --argjson fail "$fail" --argjson total "$total" \
+              --argjson mismatches "$mismatches_json" \
+              '. + [{slug:$slug, sums:$sums, pass:$pass, fail:$fail, total:$total, mismatches:$mismatches}]' \
+              <<< "$slugs_json")
             echo "  → ${slug}: sums=${sums_status} pass=${pass} fail=${fail} total=${total}"
           done
-          printf ']}' >> "$OUT"
+          jq -n --argjson slugs "$slugs_json" '{slugs:$slugs}' > "$OUT"
           cat "$OUT"
           echo "report=$OUT" >> "$GITHUB_OUTPUT"
 
