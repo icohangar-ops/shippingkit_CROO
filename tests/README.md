@@ -89,6 +89,14 @@ If that external ZIP service is unavailable, an expandable **⬇️ Individual
 downloads** section right below the ZIP link provides direct fall-back links
 to the baseline JSON report, full timeline PNG, and step PNG — so reviewers
 can still retrieve every artifact without leaving the PR comment.
+Every published attempt directory also includes a **SHA256SUMS.txt** file. The
+PR comment surfaces the first 12 hex chars of the SHA-256 next to each
+download link (full hash on hover) for both the current failing step's
+thumbnail/full timeline and every matched baseline artifact, plus a direct
+**🔐 SHA256SUMS.txt** link. Reviewers can verify any downloaded file with
+`sha256sum -c SHA256SUMS.txt`; because the ZIP is generated on demand by
+`download-directory.github.io`, its extracted contents match the same per-file
+sums, so the checksum list covers ZIP downloads too.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
