@@ -52,6 +52,14 @@ diff** code blocks for every failing or warning step (up to six),
 so reviewers see the full event ordering and key payload mismatches
 without downloading anything.
 
+On pull requests the workflow also generates per-step PNG thumbnails
+(`<name>-step-<NNN>.png`, focal step + 2 neighbours each side, ~640px)
+and pushes them to an orphan `e2e-artifacts` branch under
+`pr-<num>/run-<id>-<attempt>/`. Each failing/warning `<details>` block
+in the PR comment then embeds the matching thumbnail inline via
+`https://github.com/<owner>/<repo>/raw/e2e-artifacts/...`, so reviewers
+see the failed lane in context without expanding artifacts.
+
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
   so any provider that imports `@croo-network/sdk` runs unchanged.
