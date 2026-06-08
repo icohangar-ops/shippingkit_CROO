@@ -339,8 +339,11 @@ jobs:
                 const act = e.actual   !== undefined ? JSON.stringify(e.actual,   null, 2) : '—';
                 const diff = e.diff ? `\n\n**diff**\n\`\`\`diff\n${e.diff}\n\`\`\`` : '';
                 const tlIdx = (r.timeline || []).indexOf(e);
+                const curStepFileName = `${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`;
+                const curTimelineFileName = `${r.name}-timeline.png`;
+                const curJsonFileName = `${r.name}.json`;
                 const thumb = thumbsBase && tlIdx >= 0
-                  ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a> · sha256 ${shortSum(currentSumFor(`${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`))} (step) · ${shortSum(currentSumFor(`${r.name}-timeline.png`))} (timeline) · <a href="${thumbsBase}/SHA256SUMS.txt" title="Download SHA256SUMS.txt for this attempt" download>🔐 SHA256SUMS.txt</a></sub>\n`
+                  ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${curStepFileName}"></a>\n<sub>🔍 <a href="${thumbsBase}/${curTimelineFileName}">Click to open full-size timeline →</a> · sha256 ${shortSum(currentSumFor(curStepFileName))} (step) · ${shortSum(currentSumFor(curTimelineFileName))} (timeline) · <a href="${thumbsBase}/SHA256SUMS.txt" title="Download SHA256SUMS.txt for this attempt" download>🔐 SHA256SUMS.txt</a></sub>\n\n${verifyButton('Verify downloads (current attempt)', thumbsBase, [curJsonFileName, curTimelineFileName, curStepFileName])}\n`
                   : '';
 
                 // Cross-attempt comparison block: search previous attempts
@@ -389,6 +392,7 @@ jobs:
                     ` · <a href="${baselineSumsUrl}" title="Download SHA256SUMS.txt for the matched baseline attempt" download>🔐 SHA256SUMS.txt</a>` +
                     `</sub></p>\n` +
                     `<p><sub>Verify any file with <code>sha256sum -c SHA256SUMS.txt</code> (or compare the prefix shown above). The ZIP is generated on demand by <code>download-directory.github.io</code>; once extracted, its files match these same sums.</sub></p>` +
+                    `\n${verifyButton('Verify downloads (matched baseline)', matchedBase, [baselineJsonName, baselineTimelineName, baselineStepName])}\n` +
                     `</details>`;
                   const baselineTreeUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/tree/e2e-artifacts/pr-${context.issue.number}/${matchedSlug}`;
                   const baselineZipUrl = `https://download-directory.github.io/?url=${encodeURIComponent(baselineTreeUrl)}`;
