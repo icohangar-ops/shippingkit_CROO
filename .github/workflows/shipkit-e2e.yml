@@ -88,17 +88,27 @@ jobs:
             (cd "$STAGE" && git checkout -q --orphan e2e-artifacts && git rm -rfq . 2>/dev/null || true)
           }
           mkdir -p "$STAGE/$DEST"
-          # Detect the most-recent PRIOR attempt for this PR (if any) BEFORE
-          # we commit the current run, then stash its JSON locally so the
-          # PR comment can diff current-vs-previous failing steps.
-          PREV_DIR=$(ls -1d "$STAGE/pr-${PR_NUM}"/run-* 2>/dev/null | sort -V | tail -n1 || true)
-          if [ -n "$PREV_DIR" ] && [ -d "$PREV_DIR" ]; then
+          # Detect ALL prior attempts for this PR (if any) BEFORE we commit
+          # the current run, then stash every attempt's JSON locally so the
+          # PR comment can diff current-vs-previous and fall back when the
+          # immediate previous attempt is missing a step.
+          ALL_PREV=$(ls -1d "$STAGE/pr-${PR_NUM}"/run-* 2>/dev/null | sort -V || true)
+          PREV_DIR=""
+          PREV_SLUG=""
+          if [ -n "$ALL_PREV" ]; then
+            PREV_DIR=$(echo "$ALL_PREV" | tail -n1)
             PREV_SLUG=$(basename "$PREV_DIR")
-            mkdir -p /tmp/prev-reports
-            cp "$PREV_DIR"/*.json /tmp/prev-reports/ 2>/dev/null || true
+            for prev_dir in $ALL_PREV; do
+              prev_slug=$(basename "$prev_dir")
+              mkdir -p "/tmp/prev-reports/${prev_slug}"
+              cp "$prev_dir"/*.json "/tmp/prev-reports/${prev_slug}/" 2>/dev/null || true
+            done
             echo "prev_base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${PREV_SLUG}" >> "$GITHUB_OUTPUT"
             echo "prev_slug=${PREV_SLUG}" >> "$GITHUB_OUTPUT"
-            echo "Previous attempt detected: ${PREV_SLUG}"
+            # Newest-first comma-separated list for fallback scanning in JS
+            ALL_SLUGS=$(echo "$ALL_PREV" | sort -Vr | xargs -n1 basename | paste -sd ',' -)
+            echo "prev_slugs=${ALL_SLUGS}" >> "$GITHUB_OUTPUT"
+            echo "Previous attempts: ${ALL_SLUGS}"
           else
             echo "No previous attempt on e2e-artifacts branch."
           fi
@@ -179,6 +189,7 @@ jobs:
           THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.base_url }}
           PREV_THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.prev_base_url }}
           PREV_SLUG: ${{ steps.publish_thumbs.outputs.prev_slug }}
+          PREV_SLUGS: ${{ steps.publish_thumbs.outputs.prev_slugs }}
         with:
           script: |
             const fs = require('fs');
@@ -210,6 +221,25 @@ jobs:
               return out.join('\n');
             };
             const stepKey = (e) => `${e.phase}::${e.label}`;
+            const prevSlugs = (process.env.PREV_SLUGS || '').split(',').filter(Boolean);
+
+            const findPrevStep = (currentStep, filename) => {
+              if (!prevSlugs.length) return null;
+              const key = stepKey(currentStep);
+              for (const slug of prevSlugs) {
+                const prevPath = path.join(PREV_DIR, slug, filename);
+                if (!fs.existsSync(prevPath)) continue;
+                let prevReport;
+                try { prevReport = JSON.parse(fs.readFileSync(prevPath, 'utf8')); } catch { continue; }
+                const pTimeline = prevReport.timeline || [];
+                const pIdx = pTimeline.findIndex(x => stepKey(x) === key);
+                if (pIdx >= 0) {
+                  const baseUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/raw/e2e-artifacts/pr-${context.issue.number}/${slug}`;
+                  return { report: prevReport, step: pTimeline[pIdx], idx: pIdx, slug, baseUrl };
+                }
+              }
+              return null;
+            };
 
             const MARKER = '<!-- shipkit-e2e-summary -->';
             const sections = [];
@@ -237,14 +267,7 @@ jobs:
 
               if (!failed.length) { sections.push(`${head}\n\n${timelineBlock}`); continue; }
 
-              // Load matching previous-attempt report (if any) for cross-attempt diffs.
-              let prev = null;
-              if (hasPrev) {
-                const prevPath = path.join(PREV_DIR, f);
-                if (fs.existsSync(prevPath)) {
-                  try { prev = JSON.parse(fs.readFileSync(prevPath, 'utf8')); } catch {}
-                }
-              }
+              // Cross-attempt comparison with automatic fallback to older attempts.
 
               // Key payload diffs for every failing/warning step.
               const diffBlocks = failed.slice(0, 6).map(e => {
@@ -257,47 +280,43 @@ jobs:
                   ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a></sub>\n`
                   : '';
 
-                // Cross-attempt comparison block: match the same step by (phase,label)
-                // in the previous report, render side-by-side full-size links +
-                // unified diffs of status/expected/actual between attempts.
+                // Cross-attempt comparison block: search previous attempts
+                // newest→oldest and fall back automatically when the step is
+                // missing from the immediate previous run.
                 let compareBlock = '';
-                if (prev && prevThumbsBase) {
-                  const pTimeline = prev.timeline || [];
-                  const key = stepKey(e);
-                  const pIdx = pTimeline.findIndex(x => stepKey(x) === key);
-                  if (pIdx >= 0) {
-                    const p = pTimeline[pIdx];
-                    const curStepPng = `${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`;
-                    const prevStepPng = `${prevThumbsBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
-                    const curFullPng = `${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}`;
-                    const prevFullPng = `${prevThumbsBase}/${r.name}-timeline.png#step-${pIdx + 1}`;
-                    const statusDiff = (p.status !== e.status)
-                      ? `\n\n**status:** \`${p.status}\` → \`${e.status}\``
-                      : `\n\n_Status unchanged (\`${e.status}\`)._`;
-                    const expDiff = diffLines(
-                      p.expected !== undefined ? JSON.stringify(p.expected, null, 2) : '',
-                      e.expected !== undefined ? JSON.stringify(e.expected, null, 2) : '',
-                    );
-                    const actDiff = diffLines(
-                      p.actual !== undefined ? JSON.stringify(p.actual, null, 2) : '',
-                      e.actual !== undefined ? JSON.stringify(e.actual, null, 2) : '',
-                    );
-                    compareBlock =
-                      `\n\n<details><summary>🆚 Compare against previous attempt (<code>${prevSlug}</code>)</summary>\n\n` +
-                      `<table><tr>` +
-                      `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
-                      `<th align="left">Current (<code>+${e.ts}ms</code>)</th>` +
-                      `</tr><tr>` +
-                      `<td><a href="${prevFullPng}" title="Open previous full-size timeline"><img width="360" src="${prevStepPng}" alt="previous step #${pIdx + 1}"></a></td>` +
-                      `<td><a href="${curFullPng}" title="Open current full-size timeline"><img width="360" src="${curStepPng}" alt="current step #${tlIdx + 1}"></a></td>` +
-                      `</tr></table>\n` +
-                      `${statusDiff}\n\n` +
-                      `**expected (prev → current)**\n\`\`\`diff\n${expDiff || '(no change)'}\n\`\`\`\n\n` +
-                      `**actual (prev → current)**\n\`\`\`diff\n${actDiff || '(no change)'}\n\`\`\`\n` +
-                      `</details>`;
-                  } else {
-                    compareBlock = `\n\n<sub>🆕 Step not present in previous attempt (<code>${prevSlug}</code>).</sub>`;
-                  }
+                const matched = findPrevStep(e, f);
+                if (matched) {
+                  const { step: p, idx: pIdx, slug: matchedSlug, baseUrl: matchedBase } = matched;
+                  const curStepPng = `${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`;
+                  const prevStepPng = `${matchedBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
+                  const curFullPng = `${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}`;
+                  const prevFullPng = `${matchedBase}/${r.name}-timeline.png#step-${pIdx + 1}`;
+                  const statusDiff = (p.status !== e.status)
+                    ? `\n\n**status:** \`${p.status}\` → \`${e.status}\``
+                    : `\n\n_Status unchanged (\`${e.status}\`)._`;
+                  const expDiff = diffLines(
+                    p.expected !== undefined ? JSON.stringify(p.expected, null, 2) : '',
+                    e.expected !== undefined ? JSON.stringify(e.expected, null, 2) : '',
+                  );
+                  const actDiff = diffLines(
+                    p.actual !== undefined ? JSON.stringify(p.actual, null, 2) : '',
+                    e.actual !== undefined ? JSON.stringify(e.actual, null, 2) : '',
+                  );
+                  compareBlock =
+                    `\n\n<details><summary>🆚 Compare against previous attempt (<code>${matchedSlug}</code>)</summary>\n\n` +
+                    `<table><tr>` +
+                    `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
+                    `<th align="left">Current (<code>+${e.ts}ms</code>)</th>` +
+                    `</tr><tr>` +
+                    `<td><a href="${prevFullPng}" title="Open previous full-size timeline"><img width="360" src="${prevStepPng}" alt="previous step #${pIdx + 1}"></a></td>` +
+                    `<td><a href="${curFullPng}" title="Open current full-size timeline"><img width="360" src="${curStepPng}" alt="current step #${tlIdx + 1}"></a></td>` +
+                    `</tr></table>\n` +
+                    `${statusDiff}\n\n` +
+                    `**expected (prev → current)**\n\`\`\`diff\n${expDiff || '(no change)'}\n\`\`\`\n\n` +
+                    `**actual (prev → current)**\n\`\`\`diff\n${actDiff || '(no change)'}\n\`\`\`\n` +
+                    `</details>`;
+                } else {
+                  compareBlock = `\n\n<sub>🆕 Step not present in any previous attempt.</sub>`;
                 }
 
                 return `<details open><summary>${icon} <code>+${e.ts}ms</code> · <b>${e.phase}</b> · ${e.label.replace(/</g,'&lt;')}</summary>${thumb}\n` +
