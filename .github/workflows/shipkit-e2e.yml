@@ -208,7 +208,7 @@ jobs:
                 const diff = e.diff ? `\n\n**diff**\n\`\`\`diff\n${e.diff}\n\`\`\`` : '';
                 const tlIdx = (r.timeline || []).indexOf(e);
                 const thumb = thumbsBase && tlIdx >= 0
-                  ? `\n\n<img alt="step #${tlIdx + 1} timeline thumbnail" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png">\n`
+                  ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a></sub>\n`
                   : '';
                 return `<details open><summary>${icon} <code>+${e.ts}ms</code> · <b>${e.phase}</b> · ${e.label.replace(/</g,'&lt;')}</summary>${thumb}\n` +
                        `**expected**\n\`\`\`json\n${exp}\n\`\`\`\n\n**actual**\n\`\`\`json\n${act}\n\`\`\`${diff}\n</details>`;
