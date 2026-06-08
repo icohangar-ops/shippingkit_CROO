@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { SiteNav } from "../components/SiteNav";
 
 function NotFoundComponent() {
   return (
@@ -77,13 +78,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "ShipKit — Ship paid CAP agents in 15 minutes" },
+      { name: "description", content: "ShipKit is the developer command center for the CROO Agent Protocol. Scaffold, audit, and list paid AI agents that settle on-chain in USDC." },
+      { name: "author", content: "ShipKit" },
+      { property: "og:title", content: "ShipKit — Ship paid CAP agents in 15 minutes" },
+      { property: "og:description", content: "Scaffold, audit, and list paid AI agents on the CROO Agent Store. A2A composable. USDC-settled." },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
+      { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
@@ -118,8 +119,17 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <SiteNav />
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <footer className="mx-auto mt-24 max-w-6xl border-t border-border px-6 py-10 font-mono text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <span>shipkit.cap — built for the CROO Agent Hackathon</span>
+          <span className="flex items-center gap-2">
+            <span className="live-dot" /> CAP testnet · agent.croo.network
+          </span>
+        </div>
+      </footer>
     </QueryClientProvider>
   );
 }
