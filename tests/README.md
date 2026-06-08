@@ -97,6 +97,12 @@ thumbnail/full timeline and every matched baseline artifact, plus a direct
 `sha256sum -c SHA256SUMS.txt`; because the ZIP is generated on demand by
 `download-directory.github.io`, its extracted contents match the same per-file
 sums, so the checksum list covers ZIP downloads too.
+Each section also exposes a **🔐 Verify downloads** click-to-expand button
+(one for the current attempt, one for the matched baseline). GitHub comments
+can't execute scripts, so the button reveals a ready-to-paste bash one-liner
+that `curl`s every artifact + `SHA256SUMS.txt` into a temp dir and pipes the
+relevant lines through `sha256sum -c -`, producing a per-file `OK`/`FAILED`
+report in a single command.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
