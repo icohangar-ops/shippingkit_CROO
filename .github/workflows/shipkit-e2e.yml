@@ -20,6 +20,9 @@ jobs:
     name: Validate provider against @croo-network/sdk
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write       # push thumbnails to the e2e-artifacts branch
+      pull-requests: write  # post / update the PR comment
 
     steps:
       - uses: actions/checkout@v4
@@ -57,13 +60,42 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends imagemagick librsvg2-bin >/dev/null
           bun ./scripts/render-timeline.ts --dir reports
-          for svg in reports/*-timeline.svg; do
+          shopt -s nullglob
+          for svg in reports/*-timeline.svg reports/*-step-*.svg; do
             [ -e "$svg" ] || continue
             png="${svg%.svg}.png"
             rsvg-convert -b "#0b0f17" -o "$png" "$svg" 2>/dev/null \
               || magick -background "#0b0f17" "$svg" "$png"
           done
           ls -la reports/
+
+      - name: Publish thumbnails to e2e-artifacts branch
+        id: publish_thumbs
+        if: github.event_name == 'pull_request' && hashFiles('reports/*-step-*.png') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+          REPO_FULL: ${{ github.repository }}
+        run: |
+          set -e
+          DEST="pr-${PR_NUM}/run-${RUN_ID}-${ATTEMPT}"
+          STAGE=$(mktemp -d)
+          git clone --depth=1 --branch e2e-artifacts \
+              "https://x-access-token:${GH_TOKEN}@github.com/${REPO_FULL}.git" "$STAGE" 2>/dev/null || {
+            git init -q "$STAGE"
+            (cd "$STAGE" && git checkout -q --orphan e2e-artifacts && git rm -rfq . 2>/dev/null || true)
+          }
+          mkdir -p "$STAGE/$DEST"
+          cp reports/*-timeline.png reports/*-step-*.png "$STAGE/$DEST/" 2>/dev/null || true
+          cd "$STAGE"
+          git config user.email "shipkit-e2e@users.noreply.github.com"
+          git config user.name  "shipkit-e2e-bot"
+          git add -A "$DEST"
+          git commit -qm "e2e thumbs PR#${PR_NUM} run ${RUN_ID}.${ATTEMPT}" || { echo "nothing to commit"; exit 0; }
+          git push -q "https://x-access-token:${GH_TOKEN}@github.com/${REPO_FULL}.git" HEAD:e2e-artifacts
+          echo "base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/${DEST}" >> "$GITHUB_OUTPUT"
 
       - name: Job summary
         if: always()
@@ -98,6 +130,8 @@ jobs:
             reports/*.json
             reports/*-timeline.svg
             reports/*-timeline.png
+            reports/*-step-*.svg
+            reports/*-step-*.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -126,6 +160,7 @@ jobs:
         env:
           REPORTS_URL: ${{ steps.upload_reports.outputs.artifact-url }}
           FAILING_URL: ${{ steps.upload_failing.outputs.artifact-url }}
+          THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.base_url }}
         with:
           script: |
             const fs = require('fs');
@@ -137,6 +172,7 @@ jobs:
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const reportsUrl = process.env.REPORTS_URL || `${runUrl}#artifacts`;
             const failingUrl = process.env.FAILING_URL || '';
+            const thumbsBase = process.env.THUMBS_BASE_URL || '';
 
             const MARKER = '<!-- shipkit-e2e-summary -->';
             const sections = [];
@@ -170,7 +206,11 @@ jobs:
                 const exp = e.expected !== undefined ? JSON.stringify(e.expected, null, 2) : '—';
                 const act = e.actual   !== undefined ? JSON.stringify(e.actual,   null, 2) : '—';
                 const diff = e.diff ? `\n\n**diff**\n\`\`\`diff\n${e.diff}\n\`\`\`` : '';
-                return `<details open><summary>${icon} <code>+${e.ts}ms</code> · <b>${e.phase}</b> · ${e.label.replace(/</g,'&lt;')}</summary>\n\n` +
+                const tlIdx = (r.timeline || []).indexOf(e);
+                const thumb = thumbsBase && tlIdx >= 0
+                  ? `\n\n<img alt="step #${tlIdx + 1} timeline thumbnail" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png">\n`
+                  : '';
+                return `<details open><summary>${icon} <code>+${e.ts}ms</code> · <b>${e.phase}</b> · ${e.label.replace(/</g,'&lt;')}</summary>${thumb}\n` +
                        `**expected**\n\`\`\`json\n${exp}\n\`\`\`\n\n**actual**\n\`\`\`json\n${act}\n\`\`\`${diff}\n</details>`;
               }).join('\n');
               const more = failed.length > 6 ? `\n_+${failed.length - 6} more failing steps — see HTML report._` : '';
@@ -189,7 +229,9 @@ jobs:
               `## ShipKit E2E ${overall}`,
               `${totalOk} ok · ${totalFail} fail · ${totalWarn} warn — ${links}`,
               '',
-              `_The artifact bundle includes a rendered \`*-timeline.png\` per report. Download it from the link above for a visual lane chart of every event, call, and assert._`,
+              thumbsBase
+                ? `_Failing-step thumbnails embedded below render the focal event with two-step context on either side. Full lane chart in the artifact bundle._`
+                : `_The artifact bundle includes a rendered \`*-timeline.png\` per report — download it for the full lane chart._`,
               '',
               ...sections,
             ].join('\n');
