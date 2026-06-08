@@ -88,17 +88,27 @@ jobs:
             (cd "$STAGE" && git checkout -q --orphan e2e-artifacts && git rm -rfq . 2>/dev/null || true)
           }
           mkdir -p "$STAGE/$DEST"
-          # Detect the most-recent PRIOR attempt for this PR (if any) BEFORE
-          # we commit the current run, then stash its JSON locally so the
-          # PR comment can diff current-vs-previous failing steps.
-          PREV_DIR=$(ls -1d "$STAGE/pr-${PR_NUM}"/run-* 2>/dev/null | sort -V | tail -n1 || true)
-          if [ -n "$PREV_DIR" ] && [ -d "$PREV_DIR" ]; then
+          # Detect ALL prior attempts for this PR (if any) BEFORE we commit
+          # the current run, then stash every attempt's JSON locally so the
+          # PR comment can diff current-vs-previous and fall back when the
+          # immediate previous attempt is missing a step.
+          ALL_PREV=$(ls -1d "$STAGE/pr-${PR_NUM}"/run-* 2>/dev/null | sort -V || true)
+          PREV_DIR=""
+          PREV_SLUG=""
+          if [ -n "$ALL_PREV" ]; then
+            PREV_DIR=$(echo "$ALL_PREV" | tail -n1)
             PREV_SLUG=$(basename "$PREV_DIR")
-            mkdir -p /tmp/prev-reports
-            cp "$PREV_DIR"/*.json /tmp/prev-reports/ 2>/dev/null || true
+            for prev_dir in $ALL_PREV; do
+              prev_slug=$(basename "$prev_dir")
+              mkdir -p "/tmp/prev-reports/${prev_slug}"
+              cp "$prev_dir"/*.json "/tmp/prev-reports/${prev_slug}/" 2>/dev/null || true
+            done
             echo "prev_base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${PREV_SLUG}" >> "$GITHUB_OUTPUT"
             echo "prev_slug=${PREV_SLUG}" >> "$GITHUB_OUTPUT"
-            echo "Previous attempt detected: ${PREV_SLUG}"
+            # Newest-first comma-separated list for fallback scanning in JS
+            ALL_SLUGS=$(echo "$ALL_PREV" | sort -Vr | xargs -n1 basename | paste -sd ',' -)
+            echo "prev_slugs=${ALL_SLUGS}" >> "$GITHUB_OUTPUT"
+            echo "Previous attempts: ${ALL_SLUGS}"
           else
             echo "No previous attempt on e2e-artifacts branch."
           fi
