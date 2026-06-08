@@ -10,6 +10,7 @@
 //   @croo-network/sdk; opens a WebSocket and reports observed events.
 
 import path from "node:path";
+import fs from "node:fs";
 import { parseArgs } from "node:util";
 import { __harness, EventType } from "../tests/mocks/croo-network-sdk";
 
@@ -19,6 +20,9 @@ const { values } = parseArgs({
     mode: { type: "string", default: "mock" },
     timeout: { type: "string", default: "8000" },
     "expect-type": { type: "string", default: "text" }, // text | schema
+    "report-dir": { type: "string", default: "reports" },
+    "report-name": { type: "string", default: "" },
+    "no-report": { type: "boolean", default: false },
   },
 });
 
@@ -26,15 +30,56 @@ const MODE = values.mode as "mock" | "live";
 const TIMEOUT = Number(values.timeout);
 const EXPECT_TYPE = values["expect-type"] as "text" | "schema";
 const PROVIDER_PATH = path.resolve(process.cwd(), values.provider!);
+const REPORT_DIR = path.resolve(process.cwd(), values["report-dir"]!);
+const REPORT_NAME =
+  values["report-name"] ||
+  `e2e-${path.basename(PROVIDER_PATH).replace(/\.[tj]sx?$/, "")}-${Date.now()}`;
+const WRITE_REPORT = !values["no-report"];
+
+type TimelineEntry = {
+  ts: number;
+  phase: "boot" | "subscribe" | "event" | "call" | "assert";
+  label: string;
+  status: "ok" | "fail" | "warn" | "info";
+  detail?: string;
+  expected?: unknown;
+  actual?: unknown;
+  diff?: string;
+};
+
+const timeline: TimelineEntry[] = [];
+const t0 = Date.now();
+
+function record(entry: Omit<TimelineEntry, "ts">) {
+  timeline.push({ ts: Date.now() - t0, ...entry });
+}
+
+function diffJSON(expected: unknown, actual: unknown): string | undefined {
+  const e = JSON.stringify(expected, null, 2);
+  const a = JSON.stringify(actual, null, 2);
+  if (e === a) return undefined;
+  return `--- expected\n${e}\n+++ actual\n${a}`;
+}
 
 const C = {
-  ok: (s: string) => console.log(`\x1b[32m✓\x1b[0m ${s}`),
-  fail: (s: string): never => {
+  ok: (s: string, extra?: Partial<TimelineEntry>) => {
+    console.log(`\x1b[32m✓\x1b[0m ${s}`);
+    record({ phase: "assert", label: s, status: "ok", ...extra });
+  },
+  fail: (s: string, extra?: Partial<TimelineEntry>): never => {
     console.error(`\x1b[31m✗ ${s}\x1b[0m`);
+    record({ phase: "assert", label: s, status: "fail", ...extra });
+    finalize(1);
     process.exit(1);
   },
-  warn: (s: string) => console.warn(`\x1b[33m!\x1b[0m ${s}`),
-  info: (s: string) => console.log(`\x1b[36m▸\x1b[0m ${s}`),
+  warn: (s: string, extra?: Partial<TimelineEntry>) => {
+    console.warn(`\x1b[33m!\x1b[0m ${s}`);
+    record({ phase: "assert", label: s, status: "warn", ...extra });
+  },
+  info: (s: string, extra?: Partial<TimelineEntry>) => {
+    console.log(`\x1b[36m▸\x1b[0m ${s}`);
+    record({ phase: "event", label: s, status: "info", ...extra });
+  },
   head: (s: string) => console.log(`\n\x1b[1m${s}\x1b[0m`),
 };
 
