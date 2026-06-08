@@ -64,12 +64,16 @@ full-size `<name>-timeline.png` lane chart in a new tab (anchored to the
 focal step), so reviewers can drill from a single failing step into the
 entire run's timeline with one click.
 
-When a previous attempt for the same PR exists on the `e2e-artifacts`
-branch, each failing step also gets a collapsed **🆚 Compare against
+When previous attempts for the same PR exist on the `e2e-artifacts`
+branch, each failing step gets a collapsed **🆚 Compare against
 previous attempt** section that shows the prior-vs-current focal-step
 thumbnails side-by-side (each linking to its full-size timeline) plus
 unified diffs of `status`, `expected`, and `actual` between the two
 attempts — so reruns make regressions / fixes obvious at a glance.
+If the step is missing from the immediate previous attempt, the comment
+automatically falls back to the newest older attempt that contains it,
+making it easy to compare against the last available baseline even when
+intervening retries were partial or had different step ordering.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
