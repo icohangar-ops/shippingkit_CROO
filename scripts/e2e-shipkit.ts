@@ -151,10 +151,18 @@ async function mockMode(): Promise<void> {
   if (!ctor) C.fail("Provider did not construct new AgentClient(config, sdkKey)");
   else {
     const [config, key] = ctor.args as [{ baseURL: string; wsURL: string }, string];
-    if (!config?.baseURL?.startsWith("https://")) C.fail("AgentClient baseURL not set from CROO_API_URL");
-    if (!config?.wsURL?.startsWith("wss://")) C.fail("AgentClient wsURL not set from CROO_WS_URL");
+    if (!config?.baseURL?.startsWith("https://"))
+      C.fail("AgentClient baseURL not set from CROO_API_URL", {
+        expected: "https://…", actual: config?.baseURL,
+      });
+    if (!config?.wsURL?.startsWith("wss://"))
+      C.fail("AgentClient wsURL not set from CROO_WS_URL", {
+        expected: "wss://…", actual: config?.wsURL,
+      });
     if (!key) C.fail("AgentClient sdkKey not set from CROO_SDK_KEY");
-    C.ok(`AgentClient(baseURL=${config.baseURL}, wsURL=${config.wsURL})`);
+    C.ok(`AgentClient(baseURL=${config.baseURL}, wsURL=${config.wsURL})`, {
+      actual: { baseURL: config.baseURL, wsURL: config.wsURL, sdkKey: key.slice(0, 12) + "…" },
+    });
   }
   if (!__harness.calls.some((c) => c.method === "connectWebSocket"))
     C.fail("Provider did not call client.connectWebSocket()");
@@ -186,8 +194,16 @@ async function mockMode(): Promise<void> {
   const accept = __harness.calls.find(
     (c) => c.method === "acceptNegotiation" && c.args[0] === negotiationId,
   );
-  if (!accept) C.fail("Provider did not call acceptNegotiation(negotiation_id) after NegotiationCreated");
-  C.ok(`NegotiationCreated → acceptNegotiation("${negotiationId}")`);
+  if (!accept)
+    C.fail("Provider did not call acceptNegotiation(negotiation_id) after NegotiationCreated", {
+      expected: { method: "acceptNegotiation", args: [negotiationId] },
+      actual: __harness.calls.map((c) => c.method),
+    });
+  C.ok(`NegotiationCreated → acceptNegotiation("${negotiationId}")`, {
+    expected: { method: "acceptNegotiation", args: [negotiationId] },
+    actual: { method: "acceptNegotiation", args: accept!.args },
+    diff: diffJSON([negotiationId], accept!.args),
+  });
 
   __harness.emit("__emit", {
     event: EventType.OrderCreated,
@@ -206,14 +222,24 @@ async function mockMode(): Promise<void> {
   const delivery = __harness.calls.find(
     (c) => c.method === "deliverOrder" && c.args[0] === orderId,
   );
-  if (!delivery) C.fail("Provider did not call deliverOrder(order_id, …) after OrderPaid");
+  if (!delivery)
+    C.fail("Provider did not call deliverOrder(order_id, …) after OrderPaid", {
+      expected: { method: "deliverOrder", args: [orderId, { type: EXPECT_TYPE, content: "<any>" }] },
+      actual: __harness.calls.map((c) => c.method),
+    });
   const req = delivery.args[1] as { type: string; content: unknown };
   if (!req?.type) C.fail("deliverOrder called without DeliverableType");
   if (req.type !== EXPECT_TYPE)
-    C.warn(`DeliverableType is "${req.type}" but --expect-type=${EXPECT_TYPE}`);
+    C.warn(`DeliverableType is "${req.type}" but --expect-type=${EXPECT_TYPE}`, {
+      expected: { type: EXPECT_TYPE }, actual: { type: req.type },
+      diff: diffJSON({ type: EXPECT_TYPE }, { type: req.type }),
+    });
   if (req.content == null || (typeof req.content === "string" && !req.content.length))
     C.fail("deliverOrder content is empty");
-  C.ok(`OrderPaid → deliverOrder (type=${req.type}, content=${String(req.content).slice(0, 60)}…)`);
+  C.ok(`OrderPaid → deliverOrder (type=${req.type}, content=${String(req.content).slice(0, 60)}…)`, {
+    expected: { method: "deliverOrder", args: [orderId, { type: EXPECT_TYPE, content: "<any>" }] },
+    actual: { method: "deliverOrder", args: delivery.args },
+  });
 
   // --- Idempotency ---
   C.head("idempotency");
@@ -225,8 +251,13 @@ async function mockMode(): Promise<void> {
   await sleep(400);
   const after = __harness.calls.filter((c) => c.method === "deliverOrder").length;
   if (after > before)
-    C.warn(`duplicate OrderPaid re-triggered deliverOrder (${before} → ${after}). Guard with a Set or getDelivery().`);
-  else C.ok("duplicate OrderPaid suppressed");
+    C.warn(
+      `duplicate OrderPaid re-triggered deliverOrder (${before} → ${after}). Guard with a Set or getDelivery().`,
+      { expected: { deliverOrderCalls: before }, actual: { deliverOrderCalls: after } },
+    );
+  else C.ok("duplicate OrderPaid suppressed", {
+    expected: { deliverOrderCalls: before }, actual: { deliverOrderCalls: after },
+  });
 
   // --- Completion ---
   C.head("completion");
@@ -245,6 +276,7 @@ async function mockMode(): Promise<void> {
   }
 
   console.log(`\n\x1b[1;32m✓ E2E flow validated against @croo-network/sdk surface\x1b[0m`);
+  finalize(0);
   process.exit(0);
 }
 
