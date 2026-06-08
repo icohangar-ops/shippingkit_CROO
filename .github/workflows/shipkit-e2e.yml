@@ -462,6 +462,10 @@ jobs:
                   const baselineRunLink = matchedRunId
                     ? ` — <a href="${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${matchedRunId}" title="Open baseline run on GitHub Actions">🔧 View baseline run →</a>`
                     : '';
+                  const verifyForSlug = verifyBySlug[matchedSlug];
+                  const verifyBadgeInline = verifyForSlug
+                    ? ` · <span title="Automated CI re-downloaded each baseline artifact and ran sha256sum -c against the published SHA256SUMS.txt">${verifyBadge(verifyForSlug)}</span>`
+                    : '';
                   const baselineJsonUrl = `${matchedBase}/${r.name}.json`;
                   const baselineTimelinePng = `${matchedBase}/${r.name}-timeline.png`;
                   const baselineStepPng = `${matchedBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
