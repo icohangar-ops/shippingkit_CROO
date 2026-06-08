@@ -254,6 +254,7 @@ jobs:
           PREV_THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.prev_base_url }}
           PREV_SLUG: ${{ steps.publish_thumbs.outputs.prev_slug }}
           PREV_SLUGS: ${{ steps.publish_thumbs.outputs.prev_slugs }}
+          BASELINE_VERIFY_REPORT: ${{ steps.verify_baselines.outputs.report }}
         with:
           script: |
             const fs = require('fs');
@@ -292,6 +293,40 @@ jobs:
               }
               return baselineSumsCache[slug];
             };
+
+            // Automated baseline verification report (per-slug pass/fail).
+            // Produced by the "Verify published baseline SHA256 checksums"
+            // step, which re-downloads every artifact from the raw URL and
+            // runs sha256sum -c against the published SHA256SUMS.txt.
+            let verifySlugs = [];
+            try {
+              const p = process.env.BASELINE_VERIFY_REPORT;
+              if (p && fs.existsSync(p)) {
+                verifySlugs = JSON.parse(fs.readFileSync(p, 'utf8')).slugs || [];
+              }
+            } catch {}
+            const verifyBySlug = Object.fromEntries(verifySlugs.map(s => [s.slug, s]));
+            const verifyBadge = (s) => {
+              if (!s || s.sums !== 'ok') return '⚪ checksums file missing';
+              if (s.fail === 0 && s.pass > 0) return `🟢 ${s.pass}/${s.total} verified`;
+              if (s.fail > 0) return `🔴 ${s.fail}/${s.total} mismatch`;
+              return '⚪ no files';
+            };
+            const overallVerify = (() => {
+              if (!verifySlugs.length) return '';
+              const totals = verifySlugs.reduce((a, s) => ({
+                pass: a.pass + (s.pass || 0), fail: a.fail + (s.fail || 0), total: a.total + (s.total || 0),
+              }), { pass: 0, fail: 0, total: 0 });
+              const icon = totals.fail === 0 ? '🟢' : '🔴';
+              const status = totals.fail === 0 ? 'All baseline artifacts verified' : `${totals.fail} mismatched file(s) detected`;
+              const rows = verifySlugs.map(s => {
+                const det = s.detail ? `<br><sub><code>${s.detail.replace(/\\n/g, '<br>')}</code></sub>` : '';
+                return `<tr><td><code>${s.slug}</code></td><td>${verifyBadge(s)}</td><td><sub>${s.pass} pass · ${s.fail} fail · ${s.total} total</sub>${det}</td></tr>`;
+              }).join('');
+              return `\n<details${totals.fail ? ' open' : ''}><summary>${icon} <b>Baseline SHA256 verification</b> — ${status} (${totals.pass}/${totals.total} files across ${verifySlugs.length} attempt${verifySlugs.length === 1 ? '' : 's'})</summary>\n\n` +
+                     `<sub>Automated check: each published baseline artifact was re-downloaded from the raw URL and compared against the attempt's <code>SHA256SUMS.txt</code>.</sub>\n\n` +
+                     `<table><tr><th align="left">Attempt</th><th align="left">Result</th><th align="left">Details</th></tr>${rows}</table>\n</details>\n`;
+            })();
             const currentSumsCache = {};
             const currentSumFor = (name) => {
               if (!(name in currentSumsCache)) {
