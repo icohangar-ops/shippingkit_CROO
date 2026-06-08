@@ -319,7 +319,7 @@ jobs:
                 const diff = e.diff ? `\n\n**diff**\n\`\`\`diff\n${e.diff}\n\`\`\`` : '';
                 const tlIdx = (r.timeline || []).indexOf(e);
                 const thumb = thumbsBase && tlIdx >= 0
-                  ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a></sub>\n`
+                  ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a> · sha256 ${shortSum(currentSumFor(`${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`))} (step) · ${shortSum(currentSumFor(`${r.name}-timeline.png`))} (timeline) · <a href="${thumbsBase}/SHA256SUMS.txt" title="Download SHA256SUMS.txt for this attempt" download>🔐 SHA256SUMS.txt</a></sub>\n`
                   : '';
 
                 // Cross-attempt comparison block: search previous attempts
