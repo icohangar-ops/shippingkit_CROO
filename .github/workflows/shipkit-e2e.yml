@@ -323,12 +323,27 @@ jobs:
               const icon = totals.fail === 0 ? '🟢' : '🔴';
               const status = totals.fail === 0 ? 'All baseline artifacts verified' : `${totals.fail} mismatched file(s) detected`;
               const rows = verifySlugs.map(s => {
-                const det = s.detail ? `<br><sub><code>${s.detail.replace(/\\n/g, '<br>')}</code></sub>` : '';
-                return `<tr><td><code>${s.slug}</code></td><td>${verifyBadge(s)}</td><td><sub>${s.pass} pass · ${s.fail} fail · ${s.total} total</sub>${det}</td></tr>`;
+                return `<tr><td><code>${s.slug}</code></td><td>${verifyBadge(s)}</td><td><sub>${s.pass} pass · ${s.fail} fail · ${s.total} total</sub></td></tr>`;
               }).join('');
+              // Per-file mismatch breakdown — expected vs actual full SHA-256
+              // for every file that failed verification, so reviewers can see
+              // exactly which artifact diverged and by how much.
+              const allMismatches = verifySlugs.flatMap(s => (s.mismatches || []).map(m => ({ ...m, slug: s.slug })));
+              const mismatchSection = allMismatches.length
+                ? `\n<details open><summary>🔴 <b>Mismatching files</b> (${allMismatches.length}) — expected vs actual SHA-256</summary>\n\n` +
+                  `<table>\n<tr><th align="left">Attempt</th><th align="left">File</th><th align="left">Reason</th><th align="left">Expected</th><th align="left">Actual</th></tr>\n` +
+                  allMismatches.map(m => {
+                    const exp = m.expected ? `<code title="sha256:${m.expected}">${m.expected.slice(0, 16)}…</code>` : '<code>—</code>';
+                    const act = m.actual ? `<code title="sha256:${m.actual}">${m.actual.slice(0, 16)}…</code>` : '<code>—</code>';
+                    return `<tr><td><code>${m.slug}</code></td><td><code>${m.name}</code></td><td><sub>${m.reason || 'mismatch'}</sub></td><td>${exp}</td><td>${act}</td></tr>`;
+                  }).join('\n') +
+                  `\n</table>\n\n<sub>Hover any hash to see the full 64-char SHA-256. A mismatch means the file currently served from the <code>e2e-artifacts</code> branch no longer matches the hash recorded in its <code>SHA256SUMS.txt</code> at publish time.</sub>\n</details>\n`
+                : '';
               return `\n<details${totals.fail ? ' open' : ''}><summary>${icon} <b>Baseline SHA256 verification</b> — ${status} (${totals.pass}/${totals.total} files across ${verifySlugs.length} attempt${verifySlugs.length === 1 ? '' : 's'})</summary>\n\n` +
                      `<sub>Automated check: each published baseline artifact was re-downloaded from the raw URL and compared against the attempt's <code>SHA256SUMS.txt</code>.</sub>\n\n` +
-                     `<table><tr><th align="left">Attempt</th><th align="left">Result</th><th align="left">Details</th></tr>${rows}</table>\n</details>\n`;
+                     `<table><tr><th align="left">Attempt</th><th align="left">Result</th><th align="left">Counts</th></tr>${rows}</table>\n` +
+                     mismatchSection +
+                     `</details>\n`;
             })();
             const currentSumsCache = {};
             const currentSumFor = (name) => {
