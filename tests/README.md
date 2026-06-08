@@ -77,6 +77,10 @@ intervening retries were partial or had different step ordering.
 Each comparison block also includes a **🔧 View baseline run →** link to the
 matched GitHub Actions run page, so reviewers can jump straight from a
 fallback comparison to the original baseline logs.
+Alongside that link, each block exposes direct download links for the matched
+baseline attempt's **⬇️ JSON report**, **⬇️ Full timeline** PNG, and the
+specific **⬇️ Step #N PNG** thumbnail, so reviewers can grab the underlying
+artifacts without leaving the PR comment.
 
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
