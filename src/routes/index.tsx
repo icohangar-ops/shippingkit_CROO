@@ -26,27 +26,29 @@ const steps = [
   {
     k: "scaffold",
     t: "Scaffold",
-    d: "Pick a track. ShipKit emits a typed agent skeleton with a clean handler, USDC pricing, and an agent.manifest.json ready for the Agent Store.",
+    d: "Emit a real provider.ts using @croo-network/sdk — AgentClient, WebSocket loop, accept → deliver. Wired for Base + USDC, gas sponsored by CROO.",
     code: `$ shipkit new research-cite \\
-    --track research --price 0.05 USDC/call`,
+    --track research --runtime node
+  → provider.ts  (AgentClient + ws loop)
+  → .env.example (CROO_SDK_KEY ...)`,
   },
   {
     k: "audit",
     t: "Audit",
-    d: "Run the CAP-readiness checker before submission: callable interface, settle hook, idempotency, error envelope, manifest fields.",
+    d: "Check CAP-readiness against the real SDK: AgentClient init, OrderPaid handler, DeliverableType matches the Service, typed error helpers, idempotent re-delivery.",
     code: `$ shipkit audit ./my-agent
-  ✓ cap.serve signature
-  ✓ usdc pricing declared
-  ⚠ missing idempotency key`,
+  ✓ @croo-network/sdk import
+  ✓ OrderPaid → deliverOrder
+  ⚠ no isInsufficientBalance catch`,
   },
   {
     k: "list",
     t: "List",
-    d: "Generate Agent Store listing copy from your code: title, one-liner, capabilities, sample calls, buyer FAQ. Paste into agent.croo.network.",
+    d: "Generate copy for the Agent Store Configure wizard: Service Name, Price, Description, SLA, Deliverable, Requirements, 1–5 Skill Tags. Paste into agent.croo.network.",
     code: `$ shipkit listing ./my-agent
-  → listing.md
-  → sample.curl
-  → FAQ.md`,
+  → service.md   (wizard fields)
+  → faq.md       (buyer FAQ)
+  → tags.json    (skill tags)`,
   },
 ];
 
@@ -119,33 +121,45 @@ function Index() {
               <span className="ml-3">~/agents/research-cite — shipkit</span>
             </div>
             <pre className="overflow-x-auto px-5 py-5 font-mono text-[12.5px] leading-relaxed text-foreground/90">
-{`> shipkit new research-cite --track research
-  ↳ writing  agent.manifest.json
-  ↳ writing  src/handler.ts
-  ↳ pricing  $0.05 USDC / call
-  ↳ a2a      composable: yes
+{`> shipkit new research-cite --runtime node
+  ↳ writing  provider.ts
+  ↳ writing  .env.example
+  ↳ pkg      @croo-network/sdk
+  ↳ chain    base · usdc · gas sponsored
 
-> cat src/handler.ts
+> cat provider.ts
 `}
-<span className="text-signal">{`import { cap } from "@croo/cap-sdk";
+<span className="text-signal">{`import {
+  AgentClient, EventType, DeliverableType,
+} from "@croo-network/sdk";
 
-export default cap.serve({
-  name:  "research-cite",
-  price: cap.price.usdc(0.05),
-  async call({ query }) {
-    const r = await research(query);
-    return cap.settle({
-      result:  r.answer,
-      sources: r.citations,
-    });
+const client = new AgentClient(
+  {
+    baseURL: process.env.CROO_API_URL!,
+    wsURL:   process.env.CROO_WS_URL!,
   },
+  process.env.CROO_SDK_KEY!,
+);
+
+const stream = await client.connectWebSocket();
+
+stream.on(EventType.NegotiationCreated, (e) =>
+  client.acceptNegotiation(e.negotiation_id),
+);
+
+stream.on(EventType.OrderPaid, async (e) => {
+  const answer = await research(e.order_id);
+  await client.deliverOrder(e.order_id, {
+    type:    DeliverableType.Text,
+    content: answer,
+  });
 });`}</span>
 {`
 
 > shipkit audit .
-  `}<span className="text-earn">{`✓ cap.serve signature
-  ✓ usdc pricing declared
-  ✓ idempotency key present
+  `}<span className="text-earn">{`✓ @croo-network/sdk import
+  ✓ AgentClient via env
+  ✓ OrderPaid → deliverOrder
   ✓ ready to list on agent.croo.network`}</span>
             </pre>
           </div>

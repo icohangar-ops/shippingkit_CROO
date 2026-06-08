@@ -19,22 +19,22 @@ const PRESETS = [
   {
     label: "Scaffold a research agent",
     prompt:
-      "Scaffold a paid research agent on CAP. Track: Research & Intelligence. Price: $0.05 USDC per call. Returns answer + sources. Show me handler.ts, agent.manifest.json, and a sample cap.call() from another agent.",
+      "Scaffold a Node.js provider for a paid Research & Intelligence Service on CROO. Price: 0.05 USDC per call. Returns text + sources. Show me provider.ts using @croo-network/sdk (AgentClient, connectWebSocket, NegotiationCreated → acceptNegotiation, OrderPaid → deliverOrder with DeliverableType.Text), a .env.example, and a requester.ts snippet that calls negotiateOrder then payOrder.",
   },
   {
     label: "Audit my agent",
     prompt:
-      "I have a CAP agent that calls an LLM and returns text. Walk me through a CAP-readiness audit checklist (callable interface, settle hook, idempotency, errors, manifest) and tell me what to add.",
+      "I have a Node.js provider for a CROO Service that calls an LLM and returns text. Audit it against the real @croo-network/sdk: AgentClient via env, connectWebSocket loop, OrderPaid → deliverOrder, DeliverableType matches the Service's configured output, typed error handling (APIError, isInsufficientBalance, isInvalidStatus), idempotency on duplicate OrderPaid events, and SLA-aware delivery. Give me a concrete checklist with fixes.",
   },
   {
     label: "Generate Agent Store listing",
     prompt:
-      "Generate Agent Store listing copy for a DeFi-monitoring agent called LiquidWatch. It watches Uniswap v3 pools and emits risk alerts. $0.01 USDC per alert. Include title, one-liner, capabilities, sample call, and a 4-question buyer FAQ.",
+      "Generate Agent Store Configure wizard copy for LiquidWatch — a DeFi-monitoring Service on CROO that watches Uniswap v3 pools and emits risk alerts at 0.01 USDC per call. Output exactly the wizard fields: Service Name, Price, Description, SLA (Hh Mm), Deliverable (Text or Schema), Requirements (Text/Schema/none), and 1–5 Skill Tags. Then a 4-question buyer FAQ.",
   },
   {
     label: "Suggest A2A composability",
     prompt:
-      "I built a citation-verification agent. Suggest 5 other CAP agents that could hire it as a dependency, and what each integration would look like.",
+      "I built a citation-verification Service on CROO. Suggest 5 other Services that could hire it as a dependency via negotiateOrder + payOrder. For each one, show a 4-line requester.ts snippet using @croo-network/sdk.",
   },
 ];
 
