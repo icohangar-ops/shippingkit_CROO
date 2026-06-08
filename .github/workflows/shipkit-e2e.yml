@@ -52,6 +52,19 @@ jobs:
             --report-dir reports \
             --report-name "e2e-${{ github.run_id }}-${{ github.run_attempt }}"
 
+      - name: Render timeline SVG + PNG
+        if: always() && hashFiles('reports/*.json') != ''
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends imagemagick librsvg2-bin >/dev/null
+          bun ./scripts/render-timeline.ts --dir reports
+          for svg in reports/*-timeline.svg; do
+            [ -e "$svg" ] || continue
+            png="${svg%.svg}.png"
+            rsvg-convert -b "#0b0f17" -o "$png" "$svg" 2>/dev/null \
+              || magick -background "#0b0f17" "$svg" "$png"
+          done
+          ls -la reports/
+
       - name: Job summary
         if: always()
         run: |
@@ -83,6 +96,8 @@ jobs:
           path: |
             reports/*.html
             reports/*.json
+            reports/*-timeline.svg
+            reports/*-timeline.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -136,20 +151,35 @@ jobs:
               const badge = pass ? (r.counts.warn ? '🟡 pass (warnings)' : '🟢 pass') : '🔴 fail';
               const head = `### ${badge} — \`${r.name}\`\n` +
                 `provider \`${r.provider}\` · ${r.durationMs}ms · ${r.counts.ok} ok / ${r.counts.fail} fail / ${r.counts.warn} warn`;
-              if (!failed.length) { sections.push(head); continue; }
-              const rows = failed.slice(0, 10).map(e => {
-                const icon = e.status === 'fail' ? '❌' : '⚠️';
-                const exp = e.expected !== undefined ? '`' + JSON.stringify(e.expected).slice(0, 80) + '`' : '—';
-                const act = e.actual   !== undefined ? '`' + JSON.stringify(e.actual).slice(0, 80) + '`' : '—';
-                return `| +${e.ts}ms | ${e.phase} | ${icon} ${e.label.replace(/\|/g, '\\|')} | ${exp} | ${act} |`;
+
+              // Inline rendered ASCII timeline (renders in markdown code block).
+              const ICON = { ok: '✓', fail: '✗', warn: '!', info: '▸' };
+              const tl = (r.timeline || []).map(e => {
+                const ts = `+${e.ts}ms`.padStart(8);
+                const ph = e.phase.padEnd(9);
+                return `${ts}  ${ICON[e.status] || '·'} ${ph} ${e.label.slice(0, 90)}`;
               }).join('\n');
-              const more = failed.length > 10 ? `\n_+${failed.length - 10} more — see HTML report._` : '';
-              sections.push(`${head}\n\n| at | phase | step | expected | actual |\n|---|---|---|---|---|\n${rows}${more}`);
+              const timelineBlock =
+                `<details><summary>📈 Event timeline (${(r.timeline||[]).length} steps)</summary>\n\n\`\`\`\n${tl}\n\`\`\`\n</details>`;
+
+              if (!failed.length) { sections.push(`${head}\n\n${timelineBlock}`); continue; }
+
+              // Key payload diffs for every failing/warning step.
+              const diffBlocks = failed.slice(0, 6).map(e => {
+                const icon = e.status === 'fail' ? '❌' : '⚠️';
+                const exp = e.expected !== undefined ? JSON.stringify(e.expected, null, 2) : '—';
+                const act = e.actual   !== undefined ? JSON.stringify(e.actual,   null, 2) : '—';
+                const diff = e.diff ? `\n\n**diff**\n\`\`\`diff\n${e.diff}\n\`\`\`` : '';
+                return `<details open><summary>${icon} <code>+${e.ts}ms</code> · <b>${e.phase}</b> · ${e.label.replace(/</g,'&lt;')}</summary>\n\n` +
+                       `**expected**\n\`\`\`json\n${exp}\n\`\`\`\n\n**actual**\n\`\`\`json\n${act}\n\`\`\`${diff}\n</details>`;
+              }).join('\n');
+              const more = failed.length > 6 ? `\n_+${failed.length - 6} more failing steps — see HTML report._` : '';
+              sections.push(`${head}\n\n${timelineBlock}\n\n#### Key payload diffs\n${diffBlocks}${more}`);
             }
 
             const overall = anyFail ? '🔴 **FAIL**' : (totalWarn ? '🟡 **PASS (with warnings)**' : '🟢 **PASS**');
             const links = [
-              `[📦 HTML + JSON reports](${reportsUrl})`,
+              `[📦 HTML + JSON + timeline.png](${reportsUrl})`,
               failingUrl ? `[⬇ Failing traces](${failingUrl})` : null,
               `[🔧 Run logs](${runUrl})`,
             ].filter(Boolean).join(' · ');
@@ -158,6 +188,8 @@ jobs:
               MARKER,
               `## ShipKit E2E ${overall}`,
               `${totalOk} ok · ${totalFail} fail · ${totalWarn} warn — ${links}`,
+              '',
+              `_The artifact bundle includes a rendered \`*-timeline.png\` per report. Download it from the link above for a visual lane chart of every event, call, and assert._`,
               '',
               ...sections,
             ].join('\n');
