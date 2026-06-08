@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/>
+<title>ShipKit E2E — e2e-sample-provider-1780884577196</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; background:#0b0f17; color:#e5e7eb; margin:0; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .meta { color:#9ca3af; font-size:12px; margin-bottom:16px; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-weight:600; color:#fff; }
+  .stats { display:flex; gap:16px; margin:16px 0; flex-wrap:wrap; }
+  .stat { background:#111827; padding:10px 14px; border-radius:8px; min-width:90px; }
+  .stat b { font-size:18px; display:block; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  td { padding:8px 10px; border-bottom:1px solid #1f2937; vertical-align:top; }
+  td.ts { color:#6b7280; font-variant-numeric:tabular-nums; width:70px; }
+  td.phase { color:#9ca3af; width:80px; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  td.status { width:24px; font-weight:700; text-align:center; }
+  pre { background:#0f172a; border:1px solid #1f2937; padding:8px; border-radius:6px; overflow:auto; margin:6px 0 0; font-size:12px; }
+  pre.diff { background:#1c0f0f; border-color:#451a1a; color:#fecaca; }
+  details > summary { cursor:pointer; color:#60a5fa; font-size:12px; margin-top:6px; }
+  .toolbar { display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
+  button { background:#1f2937; color:#e5e7eb; border:1px solid #374151; padding:6px 12px; border-radius:6px; cursor:pointer; font:inherit; }
+  button:hover { background:#374151; }
+  .row.hidden { display:none; }
+</style></head>
+<body>
+  <h1>ShipKit E2E Report <span class="pill" style="background:#dc2626">FAIL</span></h1>
+  <div class="meta">
+    e2e-sample-provider-1780884577196 · provider <code>/dev-server/tests/fixtures/sample-provider.ts</code> · mode <b>mock</b> · 4ms · 2026-06-08T02:09:37.196Z
+  </div>
+  <div class="stats">
+    <div class="stat"><b style="color:#16a34a">0</b>passed</div>
+    <div class="stat"><b style="color:#dc2626">1</b>failed</div>
+    <div class="stat"><b style="color:#d97706">0</b>warnings</div>
+    <div class="stat"><b>0</b>SDK calls</div>
+    <div class="stat"><b>0</b>events</div>
+  </div>
+  <div class="toolbar">
+    <button onclick="filter('all')">All</button>
+    <button onclick="filter('fail')">Failing only</button>
+    <button onclick="filter('warn')">Warnings</button>
+    <button onclick="exportFailing()">⬇ Export failing traces (JSON)</button>
+    <button onclick="copyFailing()">📋 Copy failing traces</button>
+  </div>
+  <table><tbody><tr class="row fail" data-status="fail">
+      <td class="ts">+3ms</td>
+      <td class="phase">assert</td>
+      <td class="status" style="color:#dc2626">✗</td>
+      <td class="label"><div>Provider failed to load: Cannot find module &#39;@croo-network/sdk&#39; from &#39;/dev-server/tests/fixtures/sample-provider.ts&#39;</div></td>
+    </tr></tbody></table>
+  <script id="failing" type="application/json">[
+  {
+    &quot;ts&quot;: 3,
+    &quot;phase&quot;: &quot;assert&quot;,
+    &quot;label&quot;: &quot;Provider failed to load: Cannot find module &#39;@croo-network/sdk&#39; from &#39;/dev-server/tests/fixtures/sample-provider.ts&#39;&quot;,
+    &quot;status&quot;: &quot;fail&quot;
+  }
+]</script>
+  <script>
+    function filter(mode) {
+      document.querySelectorAll('.row').forEach(r => {
+        const st = r.dataset.status;
+        const show = mode==='all' || st===mode || (mode==='fail' && st==='fail');
+        r.classList.toggle('hidden', !show);
+      });
+    }
+    function failingPayload() {
+      return document.getElementById('failing').textContent;
+    }
+    function exportFailing() {
+      const blob = new Blob([failingPayload()], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = "e2e-sample-provider-1780884577196-failing.json";
+      a.click();
+    }
+    async function copyFailing() {
+      await navigator.clipboard.writeText(failingPayload());
+      alert('Failing traces copied to clipboard');
+    }
+  </script>
+</body></html>

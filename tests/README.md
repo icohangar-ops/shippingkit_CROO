@@ -12,6 +12,20 @@ bun ./scripts/e2e-shipkit.ts --provider path/to/my-provider.ts
 bun ./scripts/e2e-shipkit.ts --expect-type schema     # assert DeliverableType.Schema
 ```
 
+### Reports
+
+Every run writes a timestamped pair to `reports/`:
+
+- `<name>.json` — machine-readable timeline (events, calls, asserts) with
+  per-step `expected` / `actual` payloads and unified diffs.
+- `<name>.html` — standalone, dark-themed report. Filter by All / Failing /
+  Warnings, expand any step to inspect expected vs. actual, and click
+  **⬇ Export failing traces (JSON)** for a one-click download of every
+  failure + warning (or **📋 Copy** to send straight to the clipboard).
+
+Flags: `--report-dir <path>` (default `reports`), `--report-name <slug>`,
+`--no-report` to skip writing.
+
 How it works:
 - `node_modules/@croo-network/sdk` is shimmed to `tests/mocks/croo-network-sdk.ts`,
   so any provider that imports `@croo-network/sdk` runs unchanged.
