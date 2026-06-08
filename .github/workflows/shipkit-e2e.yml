@@ -249,6 +249,27 @@ jobs:
             };
             const shortSum = (s) => s ? `<code title="sha256:${s}">${s.slice(0, 12)}…</code>` : '<code>n/a</code>';
 
+            // Build a click-to-expand "Verify downloads" button. GitHub
+            // comments can't execute JS, so the button reveals a copy-paste
+            // one-liner that downloads every artifact + SHA256SUMS.txt and
+            // runs `sha256sum -c` so reviewers get a single OK/FAIL report.
+            const verifyButton = (label, baseUrl, fileNames) => {
+              const files = fileNames.filter(Boolean).map(n => `'${n.replace(/'/g, "'\\''")}'`).join(' ');
+              const snippet =
+                `set -e\n` +
+                `tmp=$(mktemp -d) && cd "$tmp"\n` +
+                `base='${baseUrl}'\n` +
+                `for f in SHA256SUMS.txt ${files}; do\n` +
+                `  curl -fsSL "$base/$f" -o "$f"\n` +
+                `done\n` +
+                `grep -E " (${fileNames.filter(Boolean).map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')).join('|')})$" SHA256SUMS.txt | sha256sum -c -\n` +
+                `echo "Verified in: $tmp"`;
+              return `<details><summary>🔐 ${label}</summary>\n\n` +
+                     `<sub>GitHub comments can't run scripts — copy this snippet to verify every downloaded file's SHA-256 matches what was published. Outputs <code>OK</code> per file or a clear mismatch.</sub>\n\n` +
+                     `\`\`\`bash\n${snippet}\n\`\`\`\n` +
+                     `</details>`;
+            };
+
             // Tiny line-level unified diff (no deps).
             const diffLines = (a, b) => {
               const A = String(a ?? '').split('\n');
