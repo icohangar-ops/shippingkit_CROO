@@ -88,7 +88,22 @@ jobs:
             (cd "$STAGE" && git checkout -q --orphan e2e-artifacts && git rm -rfq . 2>/dev/null || true)
           }
           mkdir -p "$STAGE/$DEST"
-          cp reports/*-timeline.png reports/*-step-*.png "$STAGE/$DEST/" 2>/dev/null || true
+          # Detect the most-recent PRIOR attempt for this PR (if any) BEFORE
+          # we commit the current run, then stash its JSON locally so the
+          # PR comment can diff current-vs-previous failing steps.
+          PREV_DIR=$(ls -1d "$STAGE/pr-${PR_NUM}"/run-* 2>/dev/null | sort -V | tail -n1 || true)
+          if [ -n "$PREV_DIR" ] && [ -d "$PREV_DIR" ]; then
+            PREV_SLUG=$(basename "$PREV_DIR")
+            mkdir -p /tmp/prev-reports
+            cp "$PREV_DIR"/*.json /tmp/prev-reports/ 2>/dev/null || true
+            echo "prev_base_url=https://github.com/${REPO_FULL}/raw/e2e-artifacts/pr-${PR_NUM}/${PREV_SLUG}" >> "$GITHUB_OUTPUT"
+            echo "prev_slug=${PREV_SLUG}" >> "$GITHUB_OUTPUT"
+            echo "Previous attempt detected: ${PREV_SLUG}"
+          else
+            echo "No previous attempt on e2e-artifacts branch."
+          fi
+          # Publish current run: timeline + per-step PNGs + JSON (for next-run diffs).
+          cp reports/*-timeline.png reports/*-step-*.png reports/*.json "$STAGE/$DEST/" 2>/dev/null || true
           ls "$STAGE/$DEST/" || true
           cd "$STAGE"
           git config user.email "shipkit-e2e@users.noreply.github.com"
@@ -162,6 +177,8 @@ jobs:
           REPORTS_URL: ${{ steps.upload_reports.outputs.artifact-url }}
           FAILING_URL: ${{ steps.upload_failing.outputs.artifact-url }}
           THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.base_url }}
+          PREV_THUMBS_BASE_URL: ${{ steps.publish_thumbs.outputs.prev_base_url }}
+          PREV_SLUG: ${{ steps.publish_thumbs.outputs.prev_slug }}
         with:
           script: |
             const fs = require('fs');
@@ -174,6 +191,25 @@ jobs:
             const reportsUrl = process.env.REPORTS_URL || `${runUrl}#artifacts`;
             const failingUrl = process.env.FAILING_URL || '';
             const thumbsBase = process.env.THUMBS_BASE_URL || '';
+            const prevThumbsBase = process.env.PREV_THUMBS_BASE_URL || '';
+            const prevSlug = process.env.PREV_SLUG || '';
+            const PREV_DIR = '/tmp/prev-reports';
+            const hasPrev = !!prevThumbsBase && fs.existsSync(PREV_DIR);
+
+            // Tiny line-level unified diff (no deps).
+            const diffLines = (a, b) => {
+              const A = String(a ?? '').split('\n');
+              const B = String(b ?? '').split('\n');
+              const out = [];
+              const max = Math.max(A.length, B.length);
+              for (let i = 0; i < max; i++) {
+                if (A[i] === B[i]) { if (A[i] !== undefined) out.push('  ' + A[i]); continue; }
+                if (A[i] !== undefined) out.push('- ' + A[i]);
+                if (B[i] !== undefined) out.push('+ ' + B[i]);
+              }
+              return out.join('\n');
+            };
+            const stepKey = (e) => `${e.phase}::${e.label}`;
 
             const MARKER = '<!-- shipkit-e2e-summary -->';
             const sections = [];
@@ -201,6 +237,15 @@ jobs:
 
               if (!failed.length) { sections.push(`${head}\n\n${timelineBlock}`); continue; }
 
+              // Load matching previous-attempt report (if any) for cross-attempt diffs.
+              let prev = null;
+              if (hasPrev) {
+                const prevPath = path.join(PREV_DIR, f);
+                if (fs.existsSync(prevPath)) {
+                  try { prev = JSON.parse(fs.readFileSync(prevPath, 'utf8')); } catch {}
+                }
+              }
+
               // Key payload diffs for every failing/warning step.
               const diffBlocks = failed.slice(0, 6).map(e => {
                 const icon = e.status === 'fail' ? '❌' : '⚠️';
@@ -211,8 +256,52 @@ jobs:
                 const thumb = thumbsBase && tlIdx >= 0
                   ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a></sub>\n`
                   : '';
+
+                // Cross-attempt comparison block: match the same step by (phase,label)
+                // in the previous report, render side-by-side full-size links +
+                // unified diffs of status/expected/actual between attempts.
+                let compareBlock = '';
+                if (prev && prevThumbsBase) {
+                  const pTimeline = prev.timeline || [];
+                  const key = stepKey(e);
+                  const pIdx = pTimeline.findIndex(x => stepKey(x) === key);
+                  if (pIdx >= 0) {
+                    const p = pTimeline[pIdx];
+                    const curStepPng = `${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`;
+                    const prevStepPng = `${prevThumbsBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
+                    const curFullPng = `${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}`;
+                    const prevFullPng = `${prevThumbsBase}/${r.name}-timeline.png#step-${pIdx + 1}`;
+                    const statusDiff = (p.status !== e.status)
+                      ? `\n\n**status:** \`${p.status}\` → \`${e.status}\``
+                      : `\n\n_Status unchanged (\`${e.status}\`)._`;
+                    const expDiff = diffLines(
+                      p.expected !== undefined ? JSON.stringify(p.expected, null, 2) : '',
+                      e.expected !== undefined ? JSON.stringify(e.expected, null, 2) : '',
+                    );
+                    const actDiff = diffLines(
+                      p.actual !== undefined ? JSON.stringify(p.actual, null, 2) : '',
+                      e.actual !== undefined ? JSON.stringify(e.actual, null, 2) : '',
+                    );
+                    compareBlock =
+                      `\n\n<details><summary>🆚 Compare against previous attempt (<code>${prevSlug}</code>)</summary>\n\n` +
+                      `<table><tr>` +
+                      `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
+                      `<th align="left">Current (<code>+${e.ts}ms</code>)</th>` +
+                      `</tr><tr>` +
+                      `<td><a href="${prevFullPng}" title="Open previous full-size timeline"><img width="360" src="${prevStepPng}" alt="previous step #${pIdx + 1}"></a></td>` +
+                      `<td><a href="${curFullPng}" title="Open current full-size timeline"><img width="360" src="${curStepPng}" alt="current step #${tlIdx + 1}"></a></td>` +
+                      `</tr></table>\n` +
+                      `${statusDiff}\n\n` +
+                      `**expected (prev → current)**\n\`\`\`diff\n${expDiff || '(no change)'}\n\`\`\`\n\n` +
+                      `**actual (prev → current)**\n\`\`\`diff\n${actDiff || '(no change)'}\n\`\`\`\n` +
+                      `</details>`;
+                  } else {
+                    compareBlock = `\n\n<sub>🆕 Step not present in previous attempt (<code>${prevSlug}</code>).</sub>`;
+                  }
+                }
+
                 return `<details open><summary>${icon} <code>+${e.ts}ms</code> · <b>${e.phase}</b> · ${e.label.replace(/</g,'&lt;')}</summary>${thumb}\n` +
-                       `**expected**\n\`\`\`json\n${exp}\n\`\`\`\n\n**actual**\n\`\`\`json\n${act}\n\`\`\`${diff}\n</details>`;
+                       `**expected**\n\`\`\`json\n${exp}\n\`\`\`\n\n**actual**\n\`\`\`json\n${act}\n\`\`\`${diff}${compareBlock}\n</details>`;
               }).join('\n');
               const more = failed.length > 6 ? `\n_+${failed.length - 6} more failing steps — see HTML report._` : '';
               sections.push(`${head}\n\n${timelineBlock}\n\n#### Key payload diffs\n${diffBlocks}${more}`);
