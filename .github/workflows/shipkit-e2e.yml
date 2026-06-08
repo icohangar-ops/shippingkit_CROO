@@ -267,14 +267,7 @@ jobs:
 
               if (!failed.length) { sections.push(`${head}\n\n${timelineBlock}`); continue; }
 
-              // Load matching previous-attempt report (if any) for cross-attempt diffs.
-              let prev = null;
-              if (hasPrev) {
-                const prevPath = path.join(PREV_DIR, f);
-                if (fs.existsSync(prevPath)) {
-                  try { prev = JSON.parse(fs.readFileSync(prevPath, 'utf8')); } catch {}
-                }
-              }
+              // Cross-attempt comparison with automatic fallback to older attempts.
 
               // Key payload diffs for every failing/warning step.
               const diffBlocks = failed.slice(0, 6).map(e => {
@@ -287,47 +280,43 @@ jobs:
                   ? `\n\n<a href="${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}" title="Open full-size timeline (step #${tlIdx + 1})"><img alt="step #${tlIdx + 1} timeline thumbnail — click to expand" width="640" src="${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png"></a>\n<sub>🔍 <a href="${thumbsBase}/${r.name}-timeline.png">Click to open full-size timeline →</a></sub>\n`
                   : '';
 
-                // Cross-attempt comparison block: match the same step by (phase,label)
-                // in the previous report, render side-by-side full-size links +
-                // unified diffs of status/expected/actual between attempts.
+                // Cross-attempt comparison block: search previous attempts
+                // newest→oldest and fall back automatically when the step is
+                // missing from the immediate previous run.
                 let compareBlock = '';
-                if (prev && prevThumbsBase) {
-                  const pTimeline = prev.timeline || [];
-                  const key = stepKey(e);
-                  const pIdx = pTimeline.findIndex(x => stepKey(x) === key);
-                  if (pIdx >= 0) {
-                    const p = pTimeline[pIdx];
-                    const curStepPng = `${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`;
-                    const prevStepPng = `${prevThumbsBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
-                    const curFullPng = `${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}`;
-                    const prevFullPng = `${prevThumbsBase}/${r.name}-timeline.png#step-${pIdx + 1}`;
-                    const statusDiff = (p.status !== e.status)
-                      ? `\n\n**status:** \`${p.status}\` → \`${e.status}\``
-                      : `\n\n_Status unchanged (\`${e.status}\`)._`;
-                    const expDiff = diffLines(
-                      p.expected !== undefined ? JSON.stringify(p.expected, null, 2) : '',
-                      e.expected !== undefined ? JSON.stringify(e.expected, null, 2) : '',
-                    );
-                    const actDiff = diffLines(
-                      p.actual !== undefined ? JSON.stringify(p.actual, null, 2) : '',
-                      e.actual !== undefined ? JSON.stringify(e.actual, null, 2) : '',
-                    );
-                    compareBlock =
-                      `\n\n<details><summary>🆚 Compare against previous attempt (<code>${prevSlug}</code>)</summary>\n\n` +
-                      `<table><tr>` +
-                      `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
-                      `<th align="left">Current (<code>+${e.ts}ms</code>)</th>` +
-                      `</tr><tr>` +
-                      `<td><a href="${prevFullPng}" title="Open previous full-size timeline"><img width="360" src="${prevStepPng}" alt="previous step #${pIdx + 1}"></a></td>` +
-                      `<td><a href="${curFullPng}" title="Open current full-size timeline"><img width="360" src="${curStepPng}" alt="current step #${tlIdx + 1}"></a></td>` +
-                      `</tr></table>\n` +
-                      `${statusDiff}\n\n` +
-                      `**expected (prev → current)**\n\`\`\`diff\n${expDiff || '(no change)'}\n\`\`\`\n\n` +
-                      `**actual (prev → current)**\n\`\`\`diff\n${actDiff || '(no change)'}\n\`\`\`\n` +
-                      `</details>`;
-                  } else {
-                    compareBlock = `\n\n<sub>🆕 Step not present in previous attempt (<code>${prevSlug}</code>).</sub>`;
-                  }
+                const matched = findPrevStep(e, f);
+                if (matched) {
+                  const { step: p, idx: pIdx, slug: matchedSlug, baseUrl: matchedBase } = matched;
+                  const curStepPng = `${thumbsBase}/${r.name}-step-${String(tlIdx).padStart(3,'0')}.png`;
+                  const prevStepPng = `${matchedBase}/${r.name}-step-${String(pIdx).padStart(3,'0')}.png`;
+                  const curFullPng = `${thumbsBase}/${r.name}-timeline.png#step-${tlIdx + 1}`;
+                  const prevFullPng = `${matchedBase}/${r.name}-timeline.png#step-${pIdx + 1}`;
+                  const statusDiff = (p.status !== e.status)
+                    ? `\n\n**status:** \`${p.status}\` → \`${e.status}\``
+                    : `\n\n_Status unchanged (\`${e.status}\`)._`;
+                  const expDiff = diffLines(
+                    p.expected !== undefined ? JSON.stringify(p.expected, null, 2) : '',
+                    e.expected !== undefined ? JSON.stringify(e.expected, null, 2) : '',
+                  );
+                  const actDiff = diffLines(
+                    p.actual !== undefined ? JSON.stringify(p.actual, null, 2) : '',
+                    e.actual !== undefined ? JSON.stringify(e.actual, null, 2) : '',
+                  );
+                  compareBlock =
+                    `\n\n<details><summary>🆚 Compare against previous attempt (<code>${matchedSlug}</code>)</summary>\n\n` +
+                    `<table><tr>` +
+                    `<th align="left">Previous (<code>+${p.ts}ms</code>)</th>` +
+                    `<th align="left">Current (<code>+${e.ts}ms</code>)</th>` +
+                    `</tr><tr>` +
+                    `<td><a href="${prevFullPng}" title="Open previous full-size timeline"><img width="360" src="${prevStepPng}" alt="previous step #${pIdx + 1}"></a></td>` +
+                    `<td><a href="${curFullPng}" title="Open current full-size timeline"><img width="360" src="${curStepPng}" alt="current step #${tlIdx + 1}"></a></td>` +
+                    `</tr></table>\n` +
+                    `${statusDiff}\n\n` +
+                    `**expected (prev → current)**\n\`\`\`diff\n${expDiff || '(no change)'}\n\`\`\`\n\n` +
+                    `**actual (prev → current)**\n\`\`\`diff\n${actDiff || '(no change)'}\n\`\`\`\n` +
+                    `</details>`;
+                } else {
+                  compareBlock = `\n\n<sub>🆕 Step not present in any previous attempt.</sub>`;
                 }
 
                 return `<details open><summary>${icon} <code>+${e.ts}ms</code> · <b>${e.phase}</b> · ${e.label.replace(/</g,'&lt;')}</summary>${thumb}\n` +
