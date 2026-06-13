@@ -2,6 +2,30 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, type UIMessage } from "ai";
 import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 
+const AUTH_HEADER = "x-shipkit-token";
+
+/**
+ * Fail-closed shared-secret gate for /api/chat. Mirrors the resilience
+ * `requireAuth` semantics (see src/lib/resilience/auth.ts): when the expected
+ * secret is unset we refuse with 503 (misconfigured) rather than allowing the
+ * request; a missing/mismatched header is 401. This stops anonymous visitors
+ * from draining the Lovable API key. Tie to a Cloudflare Access policy by
+ * fronting the Worker, or set SHIPKIT_API_TOKEN.
+ */
+function checkChatAuth(request: Request): Response | null {
+  const expected = process.env.SHIPKIT_API_TOKEN;
+  if (!expected) {
+    return new Response("Server misconfigured: SHIPKIT_API_TOKEN is not set", {
+      status: 503,
+    });
+  }
+  const provided = request.headers.get(AUTH_HEADER)?.trim();
+  if (!provided || provided !== expected) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  return null;
+}
+
 const SYSTEM_PROMPT = `You are ShipKit, a senior developer-tooling agent for the CROO Agent Protocol (CAP). You ONLY emit code and copy that matches the real CAP SDK.
 
 ## What CROO/CAP actually is
@@ -84,6 +108,10 @@ export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        // Fail-closed auth: reject before touching the upstream API key.
+        const authFailure = checkChatAuth(request);
+        if (authFailure) return authFailure;
+
         const { messages } = (await request.json()) as ChatRequestBody;
         if (!Array.isArray(messages)) {
           return new Response("Messages are required", { status: 400 });
@@ -100,6 +128,8 @@ export const Route = createFileRoute("/api/chat")({
           model,
           system: SYSTEM_PROMPT,
           messages: await convertToModelMessages(messages as UIMessage[]),
+          // Bound a stuck upstream so it cannot hold the Worker indefinitely.
+          abortSignal: AbortSignal.timeout(25_000),
         });
 
         return result.toUIMessageStreamResponse({

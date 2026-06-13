@@ -149,9 +149,9 @@ export function validateCapCode(
       check(
         "idempotency",
         "Guards against duplicate OrderPaid (idempotency)",
-        "warn",
+        "error",
         /getDelivery|already.*deliver|delivered\?|seen\.has|processed\.has/i.test(code),
-        "Recommend checking getDelivery() or a local Set before re-running work.",
+        "Required: check getDelivery() or a local Set before re-running work — a duplicate OrderPaid must not trigger a second on-chain delivery (money-loss risk).",
       ),
     );
   } else {

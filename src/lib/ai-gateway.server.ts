@@ -1,6 +1,13 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { safeFetch } from "@/lib/resilience";
 
 const LOVABLE_AIG_RUN_ID_HEADER = "X-Lovable-AIG-Run-ID";
+
+// Bound the upstream AI Gateway call: per-attempt timeout + backoff on
+// 429/5xx/network errors. Restricts egress to the gateway host (SSRF guard).
+const GATEWAY_TIMEOUT_MS = 25_000;
+const GATEWAY_MAX_ATTEMPTS = 3;
+const GATEWAY_ALLOWED_HOSTS = ["ai.gateway.lovable.dev"];
 
 export function createLovableAiGatewayProvider(lovableApiKey: string, initialRunId?: string) {
   let runId = initialRunId?.trim() || undefined;
@@ -33,7 +40,19 @@ export function createLovableAiGatewayProvider(lovableApiKey: string, initialRun
         headers.set(LOVABLE_AIG_RUN_ID_HEADER, runId);
       }
       try {
-        const response = await fetch(input, { ...init, headers });
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input
+              : input.url;
+        const response = await safeFetch(url, {
+          ...init,
+          headers,
+          timeoutMs: GATEWAY_TIMEOUT_MS,
+          maxAttempts: GATEWAY_MAX_ATTEMPTS,
+          allowlist: GATEWAY_ALLOWED_HOSTS,
+        });
         publishRunId(response.headers.get(LOVABLE_AIG_RUN_ID_HEADER) ?? undefined);
         return response;
       } catch (error) {

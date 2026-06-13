@@ -387,7 +387,7 @@ async function mockMode(): Promise<void> {
   await sleep(400);
   const after = __harness.calls.filter((c) => c.method === "deliverOrder").length;
   if (after > before)
-    C.warn(
+    C.fail(
       `duplicate OrderPaid re-triggered deliverOrder (${before} → ${after}). Guard with a Set or getDelivery().`,
       { expected: { deliverOrderCalls: before }, actual: { deliverOrderCalls: after } },
     );
